@@ -1,10 +1,12 @@
 scripts
 www/.htpasswd
 www/FIFO
+www/audio_FIFO
 www/media
 www/config-user*
 www/images/bg_*
 www/custom
 www/custom*
 www/custom.php
+www/user.php
 media

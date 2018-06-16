@@ -1,6 +1,6 @@
 /* PiKrellCam
 |
-|  Copyright (C) 2015-2016 Bill Wilson    billw@gkrellm.net
+|  Copyright (C) 2015-2017 Bill Wilson    billw@gkrellm.net
 |
 |  PiKrellCam is free software: you can redistribute it and/or modify it
 |  under the terms of the GNU General Public License as published by
@@ -34,9 +34,13 @@
 #include <time.h>
 #include <ctype.h>
 #include <unistd.h>
+#include <stdint.h>
 #include <pwd.h>
 #include <grp.h>
+#include <dirent.h>
 #include <sys/stat.h>
+#include <sys/statfs.h>
+#include <sys/statvfs.h>
 #include <sys/time.h>
 #include <sys/types.h>
 
@@ -48,9 +52,12 @@
 #include "interface/mmal/util/mmal_default_components.h"
 #include "interface/mmal/util/mmal_connection.h"
 
+#include <alsa/asoundlib.h>
+#include <lame/lame.h>
+
 #include "utils.h"
 
-#define	PIKRELLCAM_VERSION	"3.1.4"
+#define	PIKRELLCAM_VERSION	"4.1.6"
 
 
 //TCP Stream Server
@@ -151,7 +158,6 @@ typedef struct
 			period;
 
 	int		count;		/* For one shot events after count expires. */
-	pid_t	child_pid;	/* > 0 if event to be executed after child exit */
 
 	void	(*func)();
 	void	*data;
@@ -256,9 +262,10 @@ typedef struct
 #define	MOTION_DETECTED      1
 #define	MOTION_DIRECTION     2
 #define	MOTION_BURST         4
-#define	MOTION_EXTERNAL      8
+#define	MOTION_FIFO      8
 #define	MOTION_PENDING_DIR   0x10
 #define	MOTION_PENDING_BURST 0x20
+#define	MOTION_AUDIO         0x40
 
 /* Possible motion types for a region
 */
@@ -266,14 +273,9 @@ typedef struct
 #define MOTION_TYPE_DIR_NORMAL     2
 #define MOTION_TYPE_BURST_DENSITY  4
 
-#define EVENT_MOTION_BEGIN            1
-#define EVENT_MOTION_END              2
-#define EVENT_PREVIEW_SAVE            4
-#define EVENT_MOTION_PREVIEW_SAVE_CMD 8
-
-#define EXT_TRIG_MODE_DEFAULT   0
-#define EXT_TRIG_MODE_ENABLE    1
-#define EXT_TRIG_MODE_TIMES     2
+#define FIFO_TRIG_MODE_DEFAULT   0
+#define FIFO_TRIG_MODE_ENABLE    1
+#define FIFO_TRIG_MODE_TIMES     2
 
 typedef struct
 	{
@@ -281,9 +283,6 @@ typedef struct
 	boolean			motion_enable,
 					show_vectors,
 					show_preset;
-
-	boolean			do_preview_save,
-					do_preview_save_cmd;
 
 	int				width,			/* width in macroblocks */
 					height;			/* height in macroblocks */
@@ -310,13 +309,15 @@ typedef struct
 			first_detect,
 			direction_detects,
 			burst_detects,
-			first_burst_count,
-			max_burst_count;
+			max_burst_count,
+			audio_detects,
+			fifo_detects;
 
-	boolean	external_trigger;
-	int		external_trigger_mode,
-			external_trigger_pre_capture,
-			external_trigger_time_limit;
+	boolean	fifo_trigger;
+	int		fifo_trigger_mode,
+			fifo_trigger_pre_capture,
+			fifo_trigger_time_limit;
+	char	*fifo_trigger_code;
 
 	Area	motion_area,	/* Geometric area convering passing vectors */
 			preview_motion_area;	/* Copy to preserve values for preview */
@@ -332,10 +333,12 @@ typedef struct
 							* sizeof(*motion_frame.trigger))
 
 #define	VCB_STATE_NONE					0
-#define	VCB_STATE_MOTION_RECORD_START	1
-#define	VCB_STATE_MOTION_RECORD			2
-#define	VCB_STATE_MANUAL_RECORD_START	4
-#define	VCB_STATE_MANUAL_RECORD			8
+#define	VCB_STATE_MOTION_RECORD_START	0x1
+#define	VCB_STATE_MANUAL_RECORD_START	0x2
+#define	VCB_STATE_LOOP_RECORD_START		0x4
+#define	VCB_STATE_MOTION_RECORD			0x10
+#define	VCB_STATE_LOOP_RECORD			0x20
+#define	VCB_STATE_MANUAL_RECORD			0x40
 #define VCB_STATE_RESTARTING			0x100
 
 #define	VCB_STATE_MOTION  (VCB_STATE_MOTION_RECORD_START | VCB_STATE_MOTION_RECORD)
@@ -344,6 +347,8 @@ typedef struct
 typedef struct
 	{
 	int			position;
+	int			audio_position;
+
 	time_t		t_frame;
 	int			frame_count;
 	uint64_t	frame_pts;
@@ -365,9 +370,12 @@ typedef struct
 	{
 	pthread_mutex_t	mutex;
 
+	time_t		t_cur;
 	FILE		*file,
 				*motion_stats_file;
-	boolean		motion_stats_do_header;
+	boolean		file_writing,
+				record_hold,
+				motion_stats_do_header;
 	int			state,
 				frame_count,
 				video_frame_count;
@@ -377,10 +385,10 @@ typedef struct
 
 	int8_t	   *data; 		/* h.264 video data array      */
 	int			size;		/* size in bytes of data array */
-	int         seconds;	/* max seconds in the buffer */
+	int         seconds;	/* max seconds in the buffer   */
 	int			head,
 				tail;
-				
+
 	KeyFrame	key_frame[KEYFRAME_SIZE];
 	int			pre_frame_index,
 				cur_frame_index;
@@ -390,6 +398,7 @@ typedef struct
 				max_record_time;
 
 	time_t		record_start_time,
+				loop_start_time,
 				record_elapsed_time;	/* seconds since record start excluding pause time. */
 	uint64_t	last_pts;
 
@@ -402,6 +411,55 @@ typedef struct
 	VideoCircularBuffer;
 
 
+/* Only do 16 bit sound samples
+*/
+#define SND_FRAMES_TO_BYTES(acb, n_frames) \
+				((int)(n_frames) * sizeof(int16_t) * acb->channels)
+
+typedef struct
+	{
+	pthread_mutex_t		mutex;
+	boolean				force_thread_exit;
+
+	snd_pcm_t			*pcm;
+	lame_t				lame_record,
+						lame_stream;
+	FILE				*mp3_file;
+	uint8_t				*mp3_record_buffer,
+						*mp3_stream_buffer;
+	int					mp3_record_buffer_size,
+						mp3_stream_buffer_size;
+
+	int					mp3_stream_fd;
+
+	int16_t				*data;			/* circular buffer data */
+	int					data_size;		/* and its size in bytes */
+
+	int					head,			/* Frame ndices into circ buf data */
+						record_head,
+						record_tail,
+						n_frames,		/* Size in frames of circ buf data */
+						max_record_frames;
+
+	uint32_t			rate,			/* ALSA parameters */
+						channels;
+	int					format,
+						periods;
+	unsigned int		period_usec;
+	snd_pcm_uframes_t	period_frames,
+						buffer_frames;
+
+	int16_t				*buffer;		/* holds read of one period of frames */
+	int					buffer_size;	/* which is copied to circular buffer */
+
+	int					record_frame_count;
+
+	int					vu_meter0,
+						vu_meter1;
+	}
+	AudioCircularBuffer;
+
+
   /* -------------- The Global PiKrellCam Environment -----------
   */
 typedef struct
@@ -409,7 +467,8 @@ typedef struct
 	int		event_gap,
 			pre_capture,
 			post_capture,
-			confirm_gap;
+			confirm_gap,
+			confirm_delay;
 	boolean	modified;
 	}
 	MotionTimes;
@@ -467,6 +526,7 @@ typedef struct
 			t_start;
 	struct tm tm_local;
 	int		second_tick;
+	int		pi_model;
 
 	char	*install_dir,
 			*version,
@@ -481,7 +541,9 @@ typedef struct
 			*scripts_dist_dir,
 			*command_fifo,
 			*state_filename,
-			*motion_events_filename;
+			*motion_events_filename,
+			*video_converting,
+			*loop_converting;
 
 	char	*config_dir,
 			*config_file,
@@ -493,18 +555,26 @@ typedef struct
 	int		log_lines;
 
 	int		verbose,
+			verbose_log,
 			verbose_motion,
 			verbose_multicast;
 	char	hostname[HOST_NAME_MAX],
 			*effective_user;
 
+	int		diskfree_percent;
+	boolean	check_archive_diskfree,
+			check_media_diskfree;
+	uint64_t tmp_space_avail;
 
 	char	*latitude,
 			*longitude;
 
-	boolean	motion_enable,
+	boolean	startup_motion_enable,
+			external_motion,
 			state_modified,
-			config_modified;
+			preset_state_modified,
+			config_modified,
+			thumb_convert_done;
 
 	int		config_sequence,
 			config_sequence_new;
@@ -519,9 +589,12 @@ typedef struct
 			motion_record_time_limit;
 	char	*on_motion_begin_cmd,
 			*on_motion_end_cmd,
+			*on_motion_enable_cmd,
+			*on_manual_end_cmd,
+			*on_loop_end_cmd,
 			*motion_regions_name;
-	char	*preview_filename,
-			*preview_thumb_filename;
+	char	*preview_pathname,
+			*thumb_name;
 	char	*motion_preview_save_mode,
 			*on_motion_preview_save_cmd;
 	boolean	motion_preview_clean,
@@ -540,25 +613,41 @@ typedef struct
 			*video_h264,
 			*video_last,
 			*video_pathname,
+			*video_description,
 			*video_manual_tag,
 			*video_motion_tag;
 	int		video_manual_sequence,
 			video_motion_sequence,
 			video_header_size,
-			video_size,
-			video_last_frame_count;
+			video_size;
+
+	int		video_last_frame_count,
+			audio_last_frame_count,
+			audio_last_rate;
+	double	video_last_time,
+			video_last_fps;
 	uint64_t video_start_pts,
 			video_end_pts;
 
-	boolean	video_mp4box;
+	char	*loop_dir,
+			*loop_video_dir,
+			*loop_thumb_dir,
+			*loop_name_format;
+	int		loop_record_time_limit,
+			loop_diskusage_percent,
+			loop_next_keyframe;
+	boolean	loop_enable,
+			loop_startup_enable;
 
+	boolean	video_mp4box,
+			do_preview_save,
+			do_preview_save_cmd;
 
 	char	*mjpeg_filename;
 	int		mjpeg_width,
 			mjpeg_height,
 			mjpeg_quality,
 			mjpeg_divider;
-	boolean	mjpeg_rename_holdoff;
 
 	char	*still_name_format,
 			*still_last;
@@ -590,6 +679,25 @@ typedef struct
 			servo_moving,
 			servo_use_servoblaster,
 			have_servos;
+
+	boolean	audio_enable,
+			audio_trigger_video,
+			audio_box_MP3_only,
+			audio_debug;
+	char	*audio_device,
+			*audio_pathname,
+			*audio_fifo;
+	int		audio_rate_Pi2,
+			audio_rate_Pi1,
+			audio_channels,
+			audio_gain_dB,
+			audio_mp3_quality_Pi2,
+			audio_mp3_quality_Pi1,
+			audio_level,
+			audio_trigger_level,
+			audio_level_event,
+			audio_confirm_gap,
+			audio_confirm_delay;
 
 	SList	*preset_position_list;
 	int		preset_position_index,
@@ -722,6 +830,7 @@ extern CameraObject	stream_splitter;
 extern CameraObject	stream_resizer;
 
 extern VideoCircularBuffer video_circular_buffer;
+extern AudioCircularBuffer audio_circular_buffer;
 extern MotionFrame  motion_frame;
 extern TimeLapse	time_lapse;
 
@@ -755,7 +864,8 @@ void		video_h264_encoder_callback(MMAL_PORT_T *port,
 					MMAL_BUFFER_HEADER_T *mmalbuf);
 boolean		camera_create(void);
 void		camera_object_destroy(CameraObject *obj);
-void		circular_buffer_init(void);
+void		video_circular_buffer_init(void);
+void		start_video_thread(void);
 
 void		mmalcam_config_parameters_set_camera(void);
 boolean 	mmalcam_config_parameter_set(char *name, char *value, boolean set_camera);
@@ -775,6 +885,7 @@ char		*fname_base(char *path);
 void		log_printf_no_timestamp(char *fmt, ...);
 void		log_printf(char *fmt, ...);
 void		video_record_start(VideoCircularBuffer *vcb, int);
+void		thumb_convert(void);
 void		video_record_stop(VideoCircularBuffer *vcb);
 void		camera_start(void);
 void		camera_stop(void);
@@ -793,7 +904,8 @@ boolean	motion_regions_config_load(char *config_file, boolean inform);
 void	motion_preview_file_event(void);
 void	motion_preview_area_fixup(void);
 void	print_cvec(char *str, CompositeVector *cvec);
-void	motion_event_write(VideoCircularBuffer *vcb, MotionFrame *mf);
+void	motion_event_write(VideoCircularBuffer *vcb, MotionFrame *mf,
+					boolean start);
 
 /* On Screen Display
 */
@@ -820,19 +932,20 @@ void	event_list_unlock(void);
 void	event_remove(Event *event);
 boolean	event_remove_name(char *name);
 void	event_process(void);
-void	event_preview_save(void);
-void	event_preview_save_cmd(char *cmd);
-void	event_motion_area_thumb(void);
-void	event_preview_dispose(void);
-void	event_motion_end_cmd(char *cmd);
+void	event_motion_enable_cmd(char *cmd);
+void	event_motion_begin_cmd(char *cmd);
 void	event_still_capture_cmd(char *cmd);
 
+void	event_video_diskfree_percent(char *type);
+void	event_archive_diskfree_percent(char *type);
+void	event_still_diskfree_percent(char *subdir);
+void	event_loop_diskusage_percent(void);
+
 void	event_notify_expire(boolean *notify);
-void	event_child_signal(int sig_num);
 int		exec_wait(char *command, char *arg);
-void	exec_no_wait(char *command, char *arg);
-Event	*exec_child_event(char *event_name, char *command, char *arg);
+void	exec_no_wait(char *command, char *arg, boolean do_log);
 void	event_shutdown_request(boolean reboot);
+char	*expand_command(char *command, char *arg);
 
 void	multicast_init(void);
 void	multicast_recv(void);
@@ -863,7 +976,17 @@ void	servo_move(int pan, int tilt, int delay);
 void	servo_command(char *args);
 void	servo_init(void);
 
-void	set_exec_with_session(boolean set);
+boolean	audio_mic_open(boolean inform);
+void	audio_retry_open(void);
+void	audio_buffer_set_record_head(AudioCircularBuffer *acb, int head);
+void	audio_buffer_set_tail(AudioCircularBuffer *acb, int position);
+boolean	audio_record_start(void);
+void	audio_record_stop(void);
+void	audio_buffer_set_record_head_tail(AudioCircularBuffer *acb, int head, int tail);
+int		audio_frames_offset_from_video(AudioCircularBuffer *acb);
+void	audio_command(char *args);
+void	audio_circular_buffer_init(void);
+
 void	sun_times_init(void);
 void	at_commands_config_save(char *config_file);
 boolean	at_commands_config_load(char *config_file);
@@ -874,6 +997,6 @@ void	tcp_poll_connect(void);
 void	tcp_send_h264_header(void *data, int len);
 void	tcp_send_h264_data(char * what, void *data, int len);
 
-
+void	pikrellcam_cleanup(void);
 
 #endif			/* _PIKRELLCAM_H		*/

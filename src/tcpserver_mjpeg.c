@@ -118,7 +118,8 @@ static void* handle_client(void *args)
 		memset(header, '\0', MAX_BUF_SIZE);
 		snprintf(header, MAX_BUF_SIZE,
 				"\r\n--fooboundary\r\n"
-				"Content-type: image/jpeg\r\n\r\n");
+				"Content-Type: image/jpeg\r\n"
+				"Content-Length: %d\r\n\r\n", buf->len);
 		if (send(fd, header, strlen(header), MSG_NOSIGNAL) < 0)
 			goto failed;
 

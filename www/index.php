@@ -91,7 +91,18 @@ function time_lapse_period()
 </head>
 
 <?php
-echo "<body background=\"$background_image\" onload=\"mjpeg_start();\">";
+	if (isset($_GET["hide_audio"]))
+		{
+		$show_audio_controls = "no";
+		config_user_save();
+		}
+	if (isset($_GET["show_audio"]))
+		{
+		$show_audio_controls = "yes";
+		config_user_save();
+		}
+
+	echo "<body background=\"$background_image\" onload=\"mjpeg_start();\">";
     echo "<div class=\"text-center\">";
         echo "<div class='text-shadow-large'>";
         echo TITLE_STRING;
@@ -102,29 +113,66 @@ echo "<body background=\"$background_image\" onload=\"mjpeg_start();\">";
           style=\"border:4px groove silver;\"
           onclick=\"image_expand_toggle();\"
         ></div>";
+
+echo "<div class=\"text-center top-margin\">";
+
+if (defined('SHOW_AUDIO_CONTROLS'))
+	{
+	if ($show_audio_controls == "yes")
+		{
+		echo "<audio id=\"audio_fifo\" controls src=\"audio_stream.php\"
+			hidden=\"hidden\" preload=\"none\" type=\"audio/mpeg\" >
+			MP3 not supported </audio>";
+
+		echo "<input type=\"image\" src=\"images/audio-stop.png\"
+			style=\"vertical-align: bottom; margin-left:0px;\"
+			onclick=\"audio_stop()\"
+			width=\"18\" height=\"28\">";
+		echo "<input type=\"image\" src=\"images/audio-play.png\"
+			style=\"vertical-align: bottom; margin-left:3px;\"
+		onclick=\"audio_play()\"
+			width=\"18\" height=\"28\">";
+		echo "<input type=\"image\" src=\"images/mic.png\"
+			style=\"vertical-align: bottom; margin-left:10px;\"
+			onclick=\"fifo_command('audio mic_toggle')\"
+			width=\"18\" height=\"28\">";
+		echo "<input type=\"image\" src=\"images/mic-up.png\"
+			style=\"vertical-align: bottom; margin-left:3px;\"
+			onclick=\"fifo_command('audio gain up')\"
+			width=\"18\" height=\"28\">";
+		echo "<input type=\"image\" src=\"images/mic-down.png\"
+			style=\"vertical-align: bottom; margin-left:3px;\"
+			onclick=\"fifo_command('audio gain down')\"
+			width=\"18\" height=\"28\">";
+		}
+	}
 ?>
 
-    <div class="text-center top-margin">
       <input type="image" src="images/stop.png"
-		style="vertical-align: bottom;"
+		style="vertical-align: bottom; margin-left:20px; margin-right:0px;"
+        width="28" height="28"
         onclick="fifo_command('record off')"
-        width="30" height="30"
       >
       <input type="image" src="images/pause.png"
-		style="vertical-align: bottom;"
+		style="vertical-align: bottom; margin-left:0px; margin-right:0px;"
+        width="28" height="28"
         onclick="fifo_command('pause')"
-        width="30" height="30"
       >
       <input type="image" src="images/record.png"
-		style="vertical-align: bottom;"
+		style="vertical-align: bottom; margin-left:0px; margin-right:0px;"
+        width="28" height="28"
         onclick="fifo_command('record on')"
-        width="30" height="30"
       >
       <input type="image" src="images/shutter.png"
-        width="30" height="30"
+		style="vertical-align: bottom; margin-left:9px; margin-right:0px;"
+        width="28" height="28"
         onclick="fifo_command('still')"
-        style="margin-left:16px; vertical-align: bottom;"
       >
+	  <input type="image" src="images/loop.png"
+		style="vertical-align: bottom; margin-left:9px; margin-right:0px;"
+		width="28" height="28"
+		onclick="fifo_command('loop toggle')"
+	  >
 
 <?php
 
@@ -188,26 +236,40 @@ if (file_exists("custom-control.php"))
 	{
 	include 'custom-control.php';
 	}
-?>
-    </div>
 
-	<div id="container" class="top-margin">
-      <a href="archive.php?year=<?php echo date('Y'); ?>"
-        class="btn-control"
-        style="margin-right:20px;"
-      >Archive Calendar</a>
-	<?php
-		echo "<span style=\"color: $default_text_color\"> Media:</span>";
-		echo "<a href='media-archive.php?mode=media&type=videos'
-			style='margin-left:2px;'
-			class='btn-control'
-			>Videos</a>";
-		echo "<a href='media-archive.php?mode=media&type=stills'
-			class='btn-control'
-			style='margin-left:2px; margin-right:30px;'
-			>Stills</a>";
-		echo "<span style=\"color: $default_text_color\"> Enable:</span>";
-	?>
+echo "</div>";
+
+echo "<div id='container' class='top-margin'>";
+
+$archive_root = ARCHIVE_DIR;
+$fs_type = exec("stat -f -L -c %T $archive_root");
+if ("$fs_type" == "nfs")
+	$arch_type = "NFS";
+else if (strpos($fs_type, 'Stale') !== false)
+	$arch_type = "Stale";
+else
+	$arch_type = "";
+
+echo "<a href=\"archive.php\"
+		class='btn-control'
+		style='margin-right:20px;'>
+		$arch_type Archive Calendar</a>";
+
+echo "<span style=\"color: $default_text_color\"> Media:</span>";
+echo "<a href='media-archive.php?mode=media&type=videos'
+		class='btn-control'
+		style='margin-left:2px;'
+		>Videos</a>";
+echo "<a href='media-archive.php?mode=media&type=stills'
+		class='btn-control'
+		style='margin-left:2px; margin-right:8px;'
+		>Stills</a>";
+echo "<a href='media-archive.php?mode=loop&type=videos'
+		class='btn-control'
+		style='margin-left:2px; margin-right:30px;'
+		>Loop</a>";
+echo "<span style=\"color: $default_text_color\"> Enable:</span>";
+?>
 
       <input type="button" id="motion_button" value="Motion"
          onclick="fifo_command('motion_enable toggle')"
@@ -375,6 +437,14 @@ if (file_exists("custom-control.php"))
                       <input type="button" value="Times"
                         class="btn-menu"
                         onclick="fifo_command('display motion_time');"
+                      >
+                      <input type="button" value="Loop"
+                        class="btn-menu"
+                        onclick="fifo_command('display loop_settings');"
+                      >
+                      <input type="button" value="Audio"
+                        class="btn-menu"
+                        onclick="fifo_command('display audio_settings');"
                       >
 <?php
 if ($servos_enable == "servos_on")
@@ -611,6 +681,14 @@ if ($servos_enable == "servos_on")
             onclick="fifo_command('halt')"
             class="btn-control alert-control"
           >
+          <?php
+			echo "<span style='float:right;'>";
+			if ("$show_audio_controls" == "yes")
+				echo "<a href='index.php?hide_audio'>Hide Audio</a>";
+			else
+				echo "<a href='index.php?show_audio'>Show Audio</a>";
+			echo "</span>";
+          ?>
         </div>
     </div>
 <?php

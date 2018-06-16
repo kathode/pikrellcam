@@ -1,6 +1,6 @@
 /* PiKrellCam
 |
-|  Copyright (C) 2015-2016 Bill Wilson    billw@gkrellm.net
+|  Copyright (C) 2015-2017 Bill Wilson    billw@gkrellm.net
 |
 |  PiKrellCam is free software: you can redistribute it and/or modify it
 |  under the terms of the GNU General Public License as published by
@@ -552,6 +552,13 @@ static Config  config[] =
 	  "#",
 	"archive_dir", "archive", TRUE, { .string = &pikrellcam.archive_dir }, config_string_set },
 
+	{ "# If loop_dir has no leading '/' it will be a sub directory under media_dir.\n"
+	  "# Otherwise it is a full pathname to the loop directory.\n"
+	  "# So the default archive dir is /home/pi/pikrellcam/media/loop.\n"
+	  "# A file system may be mounted on the loop dir in the startup script.\n"
+	  "#",
+	"loop_dir", "loop", TRUE, { .string = &pikrellcam.loop_dir }, config_string_set },
+
 	{ "# Log file.\n"
 	  "#",
 	"log_file",  "/tmp/pikrellcam.log", TRUE, { .string = &pikrellcam.log_file }, config_string_set },
@@ -565,11 +572,13 @@ static Config  config[] =
 	  "# files are loaded but before the camera is started or directories\n"
 	  "# are checked.  If you want a start command that runs after the camera\n"
 	  "# is started, add a command to the file: ~/.pikrellcam/at-commands.conf.\n"
-	  "# The default on_startup script can mount a drive on the media directory.\n"
-	  "# Edit MOUNT_DISK in the startup script in $C (the scripts directory) to\n"
-	  "# enable mounting.\n"
+	  "# The default on_startup script can mount a disk on the media_dir\n"
+	  "# and NFS mount a directory on the archive_dir.  See the web help page.\n"
+	  "# Edit MOUNT_DISK and NFS_ARCHIVE in the script to enable mounting.\n"
+	  "# As of V 4.1.5, the default scripts-dist/startup script needs:\n"
+	  "#   on_startup  $C/startup $I $m $a $G\n"
 	  "#",
-	"on_startup", "$C/startup $I $m $G",  TRUE, {.string = &pikrellcam.on_startup_cmd}, config_string_set },
+	"on_startup", "$C/startup $I $m $a $G",  TRUE, {.string = &pikrellcam.on_startup_cmd}, config_string_set },
 
 	{ "# Set to off to disable accepting halt and reboot commands\n"
 	  "# from the FIFO and the web page.\n"
@@ -580,6 +589,20 @@ static Config  config[] =
 	  "#",
 	"multicast_enable",	"on", TRUE, {.value = &pikrellcam.multicast_enable},  config_value_bool_set},
 
+	{ "\n# -------------------- Loop Record Options -----------------------\n"
+	  "# Enable loop recording at startup.\n"
+	  "#",
+	"loop_enable",	"off", FALSE, {.value = &pikrellcam.loop_startup_enable},       config_value_bool_set},
+
+	{ "# Time length limit of a loop video record.\n"
+	  "#",
+	"loop_record_time_limit",  "30", FALSE, {.value = &pikrellcam.loop_record_time_limit},      config_value_int_set},
+
+	{ "# Loop videos disk usage max percent (5 - 95).  Oldest loop videos are\n"
+	  "# deleted to limit loop video disk usage to this percent.\n"
+	  "# Loop videos are also subject to diskfree_percent deletion.\n"
+	  "#",
+	"loop_diskusage_percent",  "30", FALSE, {.value = &pikrellcam.loop_diskusage_percent},      config_value_int_set},
 
 
 	{ "\n# -------------------- Motion Detect Options -----------------------\n"
@@ -588,7 +611,8 @@ static Config  config[] =
 	  "#\n"
 	  "# Enable pikrellcam motion detection at startup\n"
 	  "#",
-	"motion_enable",	"off", FALSE, {.value = &pikrellcam.motion_enable},       config_value_bool_set},
+	"motion_enable",	"off", FALSE, {.value = &pikrellcam.startup_motion_enable},       config_value_bool_set},
+
 
 	{ "# If off, do not detect motion when servos are off a preset.\n"
 	  "#",
@@ -638,10 +662,11 @@ static Config  config[] =
 	"motion_post_capture",  "5", TRUE, {.value = &pikrellcam.motion_times.post_capture}, config_value_int_set },
 
 	{ "# Command/script to run when a motion detect event begins.\n"
+	  "#     $e variable gives the trigger: motion audio FIFO (or FIFO code)\n"
 	  "#",
 	"on_motion_begin",  "", TRUE, {.string = &pikrellcam.on_motion_begin_cmd}, config_string_set },
 
-	{ "# Command/script to run when a motion detect event ends.\n"
+	{ "# Command/script to run when a motion detect record ends.\n"
 	  "# The motion_end script uses scp to immediately archive motion detect\n"
 	  "# videos to a different computer.\n"
 	  "# To enable this, add your machine information to the motion-end script\n"
@@ -649,6 +674,22 @@ static Config  config[] =
 	  "#   on_motion_end $C/motion-end $v $P $G\n"
 	  "#",
 	"on_motion_end",    "", TRUE, {.string = &pikrellcam.on_motion_end_cmd}, config_string_set },
+
+	{ "# Command/script to run when a motion enable changes.\n"
+	  "# $o variable is enabled state: on|off\n"
+	  "#   on_motion_enable $C/motion-enable-script $o\n"
+	  "#",
+	"on_motion_enable",  "", TRUE, {.string = &pikrellcam.on_motion_enable_cmd}, config_string_set },
+
+	{ "# Command/script to run when a loop record ends.\n"
+	  "# If motion is enabled and detected during the loop video, the\n"
+	  "# on_motion_end command is run instead of on_loop_end.\n"
+	  "#",
+	"on_loop_end",    "", TRUE, {.string = &pikrellcam.on_loop_end_cmd}, config_string_set },
+
+	{ "# Command/script to run when a manual record ends.\n"
+	  "#",
+	"on_manual_end",    "", TRUE, {.string = &pikrellcam.on_manual_end_cmd}, config_string_set },
 
 	{ "# When to save the motion preview file.\n"
 	  "#     first  - when motion is first detected.\n"
@@ -670,6 +711,10 @@ static Config  config[] =
 	  "#     $K  x coordinate of the area center\n"
 	  "#     $Y  y coordinate of the area center\n"
 	  "#     $A  the filename of the thumb jpeg of the motion area\n"
+	  "#         But if save mode is first and the first detect is audio or external:\n"
+	  "#            1) The thumb jpeg is of the preview jpeg and not a motion.\n"
+	  "#            2) The thumb jpeg will be renamed if there is later motion.\n"
+	  "#         \n"
 	  "# Example command to email the motion detect preview jpeg:\n"
 	  "#     on_motion_preview_save mpack -s pikrellcam@$H $F myuser@gmail.com\n"
 	  "# Or, example command to run the default preview-save script which you\n"
@@ -710,6 +755,23 @@ static Config  config[] =
 	  "# See the help page.\n"
 	  "#",
 	"on_multicast_pkc_message",  "", TRUE, {.string = &pikrellcam.on_multicast_message_cmd}, config_string_set },
+
+
+	{ "\n# -------------------- Audio Trigger Options -----------------------\n"
+	  "# Enable audio events to trigger a motion video.\n"
+	  "#",
+	"audio_trigger_video",	"off", FALSE, {.value = &pikrellcam.audio_trigger_video},       config_value_bool_set},
+
+	{ "# Audio level to trigger a motion video, range 2 - 100\n"
+	  "#",
+	"audio_trigger_level",  "50", FALSE, {.value = &pikrellcam.audio_trigger_level},      config_value_int_set},
+
+	{ "# If this is on and an there is no video motion detected during a video\n"
+	  "# triggered by audio, then do not include the h264 video in the boxing.\n"
+	  "# See the help page.\n"
+	  "#",
+	"box_MP3_only",  "off", FALSE, {.value = &pikrellcam.audio_box_MP3_only}, config_value_bool_set },
+
 
 
 	{ "\n# --------------------- Video Record Options -----------------------\n"
@@ -770,6 +832,23 @@ static Config  config[] =
 	  "#",
 	"video_manual_name_format", "manual_%F_%H.%M.%S_$N.mp4", TRUE,
 		{.string = &pikrellcam.video_manual_name_format}, config_string_set },
+
+
+	{ "# Disk free percent (5 - 90).  Loop vidoes and, if enabled, media videos\n"
+	  "# and archived videos are deleted to maintain at least this free percent.\n"
+	  "#",
+	"diskfree_percent",  "20", FALSE, {.value = &pikrellcam.diskfree_percent},      config_value_int_set},
+
+	{ "# If on, check the media file system as each video is recorded and\n"
+	  "# delete the oldest media to maintain the free percent.\n"
+	  "#",
+	"check_media_diskfree",  "off", FALSE, {.value = &pikrellcam.check_media_diskfree}, config_value_bool_set },
+
+	{ "# If on, check the archive file system as each video is archived and\n"
+	  "# delete the oldest archived videos to maintain the free percent.\n"
+	  "# Not useful if the archive file system is the same as the media.\n"
+	  "#",
+	"check_archive_diskfree",  "off", FALSE, {.value = &pikrellcam.check_archive_diskfree}, config_value_bool_set },
 
 	{ "# Pixel width of videos recorded.\n"
 	  "#",
@@ -962,6 +1041,50 @@ static Config  config[] =
 	"servo_settle_msec",  "600", FALSE, {.value = &pikrellcam.servo_settle_msec }, config_value_int_set },
 
 
+	{ "\n# ------------------- Audio Options  -----------------------\n"
+	  "#\n"
+	  "# Set to true to capture audio to add to videos.  Web page control of\n"
+	  "# the microphone toggle button sets this on/off\n"
+	  "#",
+	"audio_enable",  "false", TRUE, {.value = &pikrellcam.audio_enable }, config_value_bool_set },
+
+	{ "# ALSA hardware audio input (microphone) capture device. Using the hw:N\n"
+	  "# limits rate values to what the hardware supports.  So use the plughw:N\n"
+	  "# plugin device to get a wider range of rates.\n"
+	  "#",
+	"audio_device",  "plughw:1", FALSE, {.string = &pikrellcam.audio_device },   config_string_set },
+
+	{ "# Audio rate.  See Help page for info on this and remaining audio options.\n"
+	  "# Lame suggests using only MP3 supported sample rates:\n"
+	  "#    8000 11025 12000 16000 22050 24000 32000 44100 48000\n"
+	  "# Audio rate for a Pi model 2 (armv7 quad core Pi2/Pi3).\n"
+	  "#",
+	"audio_rate_Pi2", "48000", FALSE, {.value = &pikrellcam.audio_rate_Pi2}, config_value_int_set },
+
+	{ "# Audio rate for a Pi model 1 (armv6 single core Pi1).\n"
+	  "#",
+	"audio_rate_Pi1", "24000", FALSE, {.value = &pikrellcam.audio_rate_Pi1}, config_value_int_set },
+
+	{ "# Audio channels.  A USB sound card probably supports only mono and\n"
+	  "# setting 2 channels for this case would be reverted to 1 when the\n"
+	  "# microphone is opened.\n"
+	  "#",
+	"audio_channels", "1", FALSE, {.value = &pikrellcam.audio_channels}, config_value_int_set },
+
+	{ "# Microphone audio gain dB (0 - 30). Set using the web page audio\n"
+	  "# gain up/down control buttons.\n"
+	  "#",
+	"audio_gain_dB", "0", FALSE, {.value = &pikrellcam.audio_gain_dB}, config_value_int_set },
+
+	{ "# MP3 lame encode quality for a Pi2/3, range 0 - 9.\n"
+	  "#",
+	"audio_mp3_quality_Pi2", "2", FALSE, {.value = &pikrellcam.audio_mp3_quality_Pi2}, config_value_int_set },
+
+	{ "# MP3 lame encode quality for a Pi1, range 0 - 9.\n"
+	  "#",
+	"audio_mp3_quality_Pi1", "7", FALSE, {.value = &pikrellcam.audio_mp3_quality_Pi1}, config_value_int_set },
+
+
 	{ "\n# ------------------- Miscellaneous Options  -----------------------\n"
 	  "#\n"
 	  "# How long in seconds a notify string should stay on the stream jpeg file.\n"
@@ -1080,7 +1203,8 @@ config_set_defaults(char *home_dir)
 
 	pikrellcam.version = strdup(PIKRELLCAM_VERSION);
 	pikrellcam.timelapse_format = strdup("tl_$n_$N.jpg");
-	pikrellcam.preview_filename = strdup("");
+	pikrellcam.preview_pathname = strdup("");
+	pikrellcam.thumb_name = strdup("");
 	pikrellcam.multicast_group_IP = "225.0.0.55";
 	pikrellcam.multicast_group_port = 22555;
 	gethostname(pikrellcam.hostname, HOST_NAME_MAX);	
@@ -1128,7 +1252,7 @@ config_load(char *config_file)
 	if ((f = fopen(config_file, "r")) == NULL)
 		return FALSE;
 
-	pikrellcam.config_sequence_new = 37;
+	pikrellcam.config_sequence_new = 45;
 
 	while (fgets(linebuf, sizeof(linebuf), f))
 		{
@@ -1151,8 +1275,8 @@ config_load(char *config_file)
 	/* Round off mjpeg_width to multiple of 16 */
 	pikrellcam.mjpeg_width = (pikrellcam.mjpeg_width + 8) & ~0xf;
 
-	if (pikrellcam.motion_magnitude_limit < 3)
-		pikrellcam.motion_magnitude_limit = 3;
+	if (pikrellcam.motion_magnitude_limit < 2)
+		pikrellcam.motion_magnitude_limit = 2;
 	if (pikrellcam.motion_magnitude_limit_count < 2)
 		pikrellcam.motion_magnitude_limit_count = 2;
 
@@ -1166,6 +1290,20 @@ config_load(char *config_file)
 	   )
 		pikrellcam.motion_record_time_limit = 10;
 
+	if (pikrellcam.diskfree_percent < 5)
+		pikrellcam.diskfree_percent = 5;
+	if (pikrellcam.loop_diskusage_percent < 5)
+		pikrellcam.loop_diskusage_percent = 5;
+
+
+	if (pikrellcam.diskfree_percent > 90)
+		pikrellcam.diskfree_percent = 90;
+	if (pikrellcam.loop_diskusage_percent > 95)
+		pikrellcam.loop_diskusage_percent = 95;
+
+	if (pikrellcam.loop_record_time_limit < 10)
+		pikrellcam.loop_record_time_limit = 10;
+
 	if (pikrellcam.motion_vectors_dimming < 30)
 		pikrellcam.motion_vectors_dimming = 30;
 	if (pikrellcam.motion_vectors_dimming > 60)
@@ -1173,6 +1311,11 @@ config_load(char *config_file)
 
 	if (pikrellcam.motion_times.post_capture > pikrellcam.motion_times.event_gap)
 		pikrellcam.motion_times.event_gap = pikrellcam.motion_times.post_capture;
+
+	if (pikrellcam.audio_trigger_level < 2)
+		pikrellcam.audio_trigger_level = 2;
+	if (pikrellcam.audio_trigger_level > 100)
+		pikrellcam.audio_trigger_level = 100;
 
 	if (pikrellcam.annotate_text_size < 6)
 		pikrellcam.annotate_text_size = 6;
@@ -1182,6 +1325,12 @@ config_load(char *config_file)
 		pikrellcam.annotate_text_size = 0;
 	else if (pikrellcam.annotate_text_brightness > 255)
 		pikrellcam.annotate_text_size = 255;
+
+	if (pikrellcam.audio_gain_dB > 30)
+		pikrellcam.audio_gain_dB = 30;
+	else if (pikrellcam.audio_gain_dB < 0)
+		pikrellcam.audio_gain_dB = 0;
+
 
 	pikrellcam.annotate_string_space_char = '_';
 
@@ -1196,6 +1345,8 @@ config_load(char *config_file)
 	       )
 	   )
 		pikrellcam.have_servos = TRUE;
+
+	pikrellcam.loop_name_format = strdup("loop_%F_%H.%M.%S_$N.mp4");
 
 	asprintf(&pikrellcam.preset_config_file, "%s/preset-%s.conf",
 					pikrellcam.config_dir,

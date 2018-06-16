@@ -1,4 +1,4 @@
-  /* PiKrellCam
+/* PiKrellCam
 |
 |  Copyright (C) 2015-2016 Bill Wilson    billw@gkrellm.net
 |
@@ -39,6 +39,9 @@ static int          mjpeg_do_preview_save;
 static pthread_mutex_t mjpeg_encoder_count_lock;
 static unsigned int	   mjpeg_encoder_send_count,
                        mjpeg_encoder_recv_count;
+
+static pthread_t	video_write_thread_ref;
+static int			thread_ret = 1;
 
   /* TODO: handle annotateV3
   */
@@ -160,6 +163,44 @@ return_buffer_to_port(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buffer)
 		}
 	}
 
+  /* Save /run/pikrellcam/mjpeg.jpg into a preview jpeg for later conversion
+  |  to a thumb and use in a preview_save command.  Make thumb.th.jpg name.
+  */
+static void
+preview_save(void)
+	{
+	FILE	*f_src, *f_dst;
+	char	*s, *base, buf[BUFSIZ];
+	int		n;
+
+	base = fname_base(pikrellcam.video_pathname);
+	if (   (s = strstr(base, ".mp4")) != NULL
+	    || (s = strstr(base, ".h264")) != NULL
+	   )
+		{
+		*s = '\0';
+		snprintf(buf, sizeof(buf), "%s/%s.jpg", pikrellcam.tmpfs_dir, base);
+		if (dup_string(&pikrellcam.preview_pathname, buf))
+			log_printf("  event preview save: copy %s -> %s\n",
+					pikrellcam.mjpeg_filename, pikrellcam.preview_pathname);
+
+		if ((f_src = fopen(pikrellcam.mjpeg_filename, "r")) != NULL)
+			{
+			if ((f_dst = fopen(pikrellcam.preview_pathname, "w")) != NULL)
+				{
+				while ((n = fread(buf, 1, sizeof(buf), f_src)) > 0)
+					{
+					if (fwrite(buf, 1, n, f_dst) != n)
+						break;
+					}
+				fclose(f_dst);
+				}
+			fclose(f_src);
+			}
+		*s = '.';
+		}
+	}
+
   /* If video_fps is too high and strains GPU, resized frames to this
   |  callback may be dropped.  Set debug_fps to 1 to check things... or
   |  just watch the web mjpeg stream and see it slow down.
@@ -226,34 +267,14 @@ mjpeg_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buffer)
 				--mjpeg_do_preview_save;
 			pthread_mutex_unlock(&mjpeg_encoder_count_lock);
 
-			/* When adding an event_preview_save, set a rename holdoff that
-			|  will be reset when the preview_save is done.  Don't do
-			|  any renames until the holdoff reset to ensure the correct
-			|  mjpeg image is saved into the preview.  Otherwise there is
-			|  a race condition.  Could just directly run the preview save
-			|  function here, but we are inside a GPU callback and I don't
-			|  want to overload the time spent here.
-			*/
-			if (!pikrellcam.mjpeg_rename_holdoff)
-				rename(fname_part, pikrellcam.mjpeg_filename);
-			else if (pikrellcam.debug)
-				printf("%s: holdoff not clear -> rename skipped\n",
-						fname_base(pikrellcam.video_pathname));
+			rename(fname_part, pikrellcam.mjpeg_filename);
 			if (do_preview_save)
 				{
-				pikrellcam.mjpeg_rename_holdoff = TRUE;
-				event_add("motion preview save", pikrellcam.t_now, 0,
-						event_preview_save, NULL);
-				if (motion_frame.do_preview_save_cmd)
-					{
-					event_add("motion area thumb", pikrellcam.t_now, 0,
-							event_motion_area_thumb, NULL);
-					event_add("preview save command", pikrellcam.t_now, 0,
-							event_preview_save_cmd,
-							pikrellcam.on_motion_preview_save_cmd);
-					}
+				preview_save();
+				if (pikrellcam.do_preview_save_cmd)
+					thumb_convert();
+				pikrellcam.do_preview_save_cmd = FALSE;
 				}
-			motion_frame.do_preview_save_cmd = FALSE;
 			}
 		file = fopen(fname_part, "w");
 		if (!file)
@@ -286,9 +307,14 @@ still_jpeg_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buffer)
 		{
 		fclose(still_jpeg_encoder.file);
 		if (pikrellcam.still_capture_event)
+			{
 			event_add("still capture command", pikrellcam.t_now, 0,
 					event_still_capture_cmd,
 					pikrellcam.on_still_capture_cmd);
+			if (pikrellcam.check_media_diskfree)
+				event_add("still diskfree percent", pikrellcam.t_now, 0,
+						event_still_diskfree_percent, PIKRELLCAM_STILL_SUBDIR);
+			}
 		else if (pikrellcam.timelapse_capture_event)
 			{
 			if (bytes_written > 0)
@@ -298,7 +324,12 @@ still_jpeg_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buffer)
 				unlink(pikrellcam.timelapse_jpeg_last);
 				dup_string(&pikrellcam.timelapse_jpeg_last, "failed");
 				}
+			if (pikrellcam.check_media_diskfree)
+				event_add("still diskfree percent", pikrellcam.t_now, 0,
+						event_still_diskfree_percent,
+						PIKRELLCAM_TIMELAPSE_SUBDIR);
 			}
+
 		pikrellcam.still_capture_event = FALSE;
 		pikrellcam.timelapse_capture_event = FALSE;
 		bytes_written = 0;
@@ -338,7 +369,7 @@ I420_video_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buffer)
 		|  the previous buffer is handled.  This is accounted for below.
 		*/
 		if (   mjpeg_encoder_send_count == mjpeg_encoder_recv_count
-		    || motion_frame.do_preview_save
+		    || pikrellcam.do_preview_save
 		   )
 			{
 			if (obj->callback_port_in && obj->callback_pool_in)
@@ -354,7 +385,7 @@ I420_video_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buffer)
 					mmal_buffer_header_mem_unlock(buffer);
 					display_draw(buffer_in->data);
 
-					if (motion_frame.do_preview_save)
+					if (pikrellcam.do_preview_save)
 						{
 						/* If mjpeg encoder has not received previous buffer,
 						|  then the buffer to save will be the second buffer
@@ -370,7 +401,7 @@ I420_video_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buffer)
 							printf("%s: encoder not clear -> preview save delayed\n",
 								fname_base(pikrellcam.video_pathname));
 						}
-					motion_frame.do_preview_save = FALSE;
+					pikrellcam.do_preview_save = FALSE;
 					++mjpeg_encoder_send_count;
 					mmal_port_send_buffer(obj->callback_port_in, buffer_in);
 					}
@@ -401,7 +432,7 @@ I420_video_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buffer)
 
 
 void
-circular_buffer_init()
+video_circular_buffer_init()
 	{
 	VideoCircularBuffer *vcb = &video_circular_buffer;
 	int					i, seconds, size;
@@ -412,56 +443,93 @@ circular_buffer_init()
 	*/
 	seconds = MAX(pikrellcam.motion_times.event_gap,
 							pikrellcam.motion_times.pre_capture) + 5;
-	size = pikrellcam.camera_adjust.video_bitrate * seconds / 8;
 	vcb->seconds = seconds;
 
+	size = pikrellcam.camera_adjust.video_bitrate * seconds / 8;
 	if (size != vcb->size)
 		{
 		if (vcb->data)
 			free(vcb->data);
-		vcb->data = (int8_t *)malloc(size);
-		log_printf("circular buffer allocate: %.2f MBytes (%d seconds at %.1f Mbits/sec)\n",
+		vcb->data = (int8_t *) malloc(size);
+		log_printf("video circular buffer - %.2f MB (%d seconds, %.1f Mbits/sec)\n",
 				(float) size / 1000000.0, seconds,
 				(double)pikrellcam.camera_adjust.video_bitrate / 1000000.0);
 		}
+	vcb->size = size;
+	vcb->head = vcb->tail = 0;
+
 	if (!vcb->data)
 		{
-		log_printf("Aborting because circular buffer malloc() failed.\n");
+		log_printf("Aborting because video circular buffer malloc() failed.\n");
 		exit(1);
 		}
-	vcb->size = size;
-	vcb->head = 0;
-	vcb->cur_frame_index = 0;
+
+	vcb->cur_frame_index = -1;
 	vcb->pre_frame_index = 0;
 	vcb->in_keyframe = FALSE;
 	for (i = 0; i < KEYFRAME_SIZE; ++i)
 		{
 		vcb->key_frame[i].position = 0;
+		vcb->key_frame[i].audio_position = 0;
 		vcb->key_frame[i].t_frame = 0;
 		vcb->key_frame[i].frame_count = 0;
 		}
 	}
 
   /* Write circular buffer data from the tail to head and upate the tail.
+  |  Use thread so writes will be outside of h264 callback.
   */
-void
-vcb_video_write(VideoCircularBuffer *vcb)
+static void *
+video_write_thread(void *ptr)
 	{
-	if (!vcb || !vcb->file)
-		return;
+	VideoCircularBuffer	*vcb = &video_circular_buffer;
+	int		head, tail;
 
-	if (vcb->tail < vcb->head)
+	while (1)
 		{
-		fwrite(vcb->data + vcb->tail, vcb->head - vcb->tail, 1, vcb->file);
-		pikrellcam.video_size += vcb->head - vcb->tail;
+		pthread_mutex_lock(&vcb->mutex);
+		head = vcb->head;
+		tail = vcb->tail;
+		if (   vcb->file
+		    && (   (vcb->state & VCB_STATE_MOTION_RECORD)
+		        || (vcb->state & VCB_STATE_LOOP_RECORD)
+		        || (vcb->state & VCB_STATE_MANUAL_RECORD)
+		       )
+		    && tail != head
+			&& !vcb->record_hold
+		   )
+			vcb->file_writing = TRUE;
+		else
+			{
+			vcb->file_writing = FALSE;
+			pthread_mutex_unlock(&vcb->mutex);
+			usleep(2000000 / pikrellcam.camera_adjust.video_fps);
+			continue;
+			}
+		pthread_mutex_unlock(&vcb->mutex);
+
+		if (tail < head)
+			{
+			fwrite(vcb->data + tail, head - tail, 1, vcb->file);
+			pikrellcam.video_size += head - tail;
+			}
+		else
+			{
+			fwrite(vcb->data + tail, vcb->size - tail, 1, vcb->file);
+			fwrite(vcb->data, head, 1, vcb->file);
+			pikrellcam.video_size += head + vcb->size - tail;
+			}
+		vcb->tail = head;
+		vcb->file_writing = FALSE;
 		}
-	else
-		{
-		fwrite(vcb->data + vcb->tail, vcb->size - vcb->tail, 1, vcb->file);
-		fwrite(vcb->data, vcb->head, 1, vcb->file);
-		pikrellcam.video_size += vcb->head + vcb->size - vcb->tail;
-		}
-	vcb->tail = vcb->head;
+	return NULL;
+	}
+
+void
+start_video_thread(void)
+	{
+	thread_ret = pthread_create(&video_write_thread_ref, NULL,
+					video_write_thread, NULL);
 	}
 
 static void
@@ -487,18 +555,18 @@ void
 video_h264_encoder_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *mmalbuf)
 	{
 	VideoCircularBuffer *vcb = &video_circular_buffer;
+	AudioCircularBuffer	*acb = &audio_circular_buffer;
 	MotionFrame		*mf = &motion_frame;
 	KeyFrame		*kf;
-	int				i, end_space, t_elapsed, event = 0;
+	int				i, end_space, t_elapsed, audio_head;
 	int				t_usec, dt_frame;
-	boolean			force_stop;
-	time_t			t_cur = pikrellcam.t_now;
+	boolean			force_stop, pending_loop_stop = FALSE;
 	static int		fps_count, pause_frame_count_adjust;
 	static time_t	t_sec, t_prev;
 	uint64_t		t64_now;
 	static int		t_annotate, t_key_frame;
 	static struct timeval	tv;
-	static uint64_t	t0_stc, pts_prev;
+	static uint64_t	t0_stc, pts_prev, cur_pts;
 	static boolean	prev_pause;
 
 	if (vcb->state == VCB_STATE_RESTARTING)
@@ -510,8 +578,12 @@ video_h264_encoder_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *mmalbuf)
 		return;
 		}
 
-	if (mmalbuf->pts > 0)
+	vcb->t_cur = pikrellcam.t_now;
+	audio_head = acb->head;
+
+	if (mmalbuf->pts > 0 && mmalbuf->pts != MMAL_TIME_UNKNOWN)
 		{
+		cur_pts = mmalbuf->pts;
 		if (pikrellcam.t_now > tv.tv_sec + 10)
 			{	/* Rarely, but time skew can change if ntp updates. */
 			gettimeofday(&tv, NULL);
@@ -539,7 +611,12 @@ video_h264_encoder_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *mmalbuf)
 			annotate_text_update(t_annotate + 1);
 			}
 
-		if (   (vcb->state == VCB_STATE_NONE || vcb->pause)
+		if (   vcb->state & VCB_STATE_LOOP_RECORD
+		    && vcb->record_elapsed_time >= vcb->max_record_time - 8
+		   )
+			pending_loop_stop = TRUE;
+
+		if (   (vcb->state == VCB_STATE_NONE || vcb->pause || pending_loop_stop)
 		    && t_key_frame < t_sec
 		    && t_usec > 1000000 - 3 * dt_frame / 2
 		   )
@@ -548,14 +625,14 @@ video_h264_encoder_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *mmalbuf)
 			mmal_port_parameter_set_boolean(port,
 						MMAL_PARAMETER_VIDEO_REQUEST_I_FRAME, 1);
 			}
-		if (   (mmalbuf->flags & MMAL_BUFFER_HEADER_FLAG_KEYFRAME)
-		         && t_cur < t_sec
-		        )
-			t_cur = t_sec;
+//		if (   (mmalbuf->flags & MMAL_BUFFER_HEADER_FLAG_KEYFRAME)
+//		         && vcb->t_cur < t_sec
+//		        )
+			vcb->t_cur = t_sec;
 		}
 
 	pthread_mutex_lock(&vcb->mutex);
-	
+
 	if (mmalbuf->flags & MMAL_BUFFER_HEADER_FLAG_CONFIG)
 		h264_header_save(mmalbuf);
 	else if (mmalbuf->flags & MMAL_BUFFER_HEADER_FLAG_CODECSIDEINFO)
@@ -585,24 +662,37 @@ video_h264_encoder_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *mmalbuf)
 			vcb->in_keyframe = TRUE;
 			vcb->cur_frame_index = (vcb->cur_frame_index + 1) % KEYFRAME_SIZE;
 			kf = &vcb->key_frame[vcb->cur_frame_index];
+
 			kf->position = vcb->head;
+			kf->audio_position = audio_head;
 			kf->frame_count = 0;
 			pause_frame_count_adjust = 0;
+
+			if (pikrellcam.audio_debug & 0x4)
+				printf("  keyframe[%d] audio: %d\n",
+						vcb->cur_frame_index, audio_head);
+
 			if (vcb->pause && vcb->state == VCB_STATE_MANUAL_RECORD)
 				{
 				vcb->tail = vcb->head;
+				audio_buffer_set_record_head_tail(acb, audio_head, audio_head);
 				pts_prev = mmalbuf->pts;
-				pause_frame_count_adjust = 0;
 				}
-			kf->t_frame = t_cur;
+			kf->t_frame = vcb->t_cur;
 			kf->frame_pts = mmalbuf->pts;
-			while (t_cur - vcb->key_frame[vcb->pre_frame_index].t_frame
+			while (vcb->t_cur - vcb->key_frame[vcb->pre_frame_index].t_frame
 						 > pikrellcam.motion_times.pre_capture)
 				{
 				vcb->pre_frame_index = (vcb->pre_frame_index + 1) % KEYFRAME_SIZE;
 				if (vcb->pre_frame_index == vcb->cur_frame_index)
 					break;
 				}
+			}
+		if (vcb->cur_frame_index < 0)
+			{
+			pthread_mutex_unlock(&vcb->mutex);
+			return_buffer_to_port(port, mmalbuf);
+			return;
 			}
 		if (mmalbuf->flags & MMAL_BUFFER_HEADER_FLAG_FRAME_END)
 			{
@@ -615,7 +705,8 @@ video_h264_encoder_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *mmalbuf)
 					break;
 				i %= KEYFRAME_SIZE;
 				}
-			if (   vcb->state == VCB_STATE_MOTION_RECORD
+			if (   (vcb->state & VCB_STATE_MOTION_RECORD)
+			    || (vcb->state & VCB_STATE_LOOP_RECORD)
 			    || vcb->state == VCB_STATE_MANUAL_RECORD
 			   )
 				{
@@ -626,11 +717,11 @@ video_h264_encoder_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *mmalbuf)
 				}
 			}
 
-		if (t_cur > t_prev)
+		if (t_sec > t_prev)
 			{
 			if (!vcb->pause)
-				++vcb->record_elapsed_time;
-			t_prev = t_cur;
+				vcb->record_elapsed_time += (int) (t_sec - t_prev);
+			t_prev = t_sec;
 			}
 
 		if (vcb->state == VCB_STATE_MOTION_RECORD_START)
@@ -644,29 +735,34 @@ video_h264_encoder_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *mmalbuf)
 			pikrellcam.video_header_size = vcb->h264_header_position;
 			pikrellcam.video_size = vcb->h264_header_position;
 
-			vcb->tail = vcb->key_frame[vcb->record_start_frame_index].position;
-			vcb_video_write(vcb);
-			vcb->frame_count = vcb->key_frame[vcb->record_start_frame_index].frame_count;
+			kf = &vcb->key_frame[vcb->record_start_frame_index];
+			vcb->tail = kf->position;
+//			video_buffer_write(vcb);
+
+			vcb->frame_count = kf->frame_count;
 			vcb->video_frame_count = vcb->frame_count;
-			motion_event_write(vcb, mf);
 			vcb->state = VCB_STATE_MOTION_RECORD;
-			if (mf->external_trigger_time_limit > 0)
+
+			if (pikrellcam.audio_debug & 0x4)
+				printf("video pre-capture frames:%d\n", vcb->video_frame_count);
+			vcb->last_pts = cur_pts;
+			audio_buffer_set_record_head_tail(acb, audio_head, kf->audio_position);
+
+			if (mf->fifo_trigger_time_limit > 0)
 				{
-				vcb->motion_sync_time = t_cur + mf->external_trigger_time_limit;
-				vcb->max_record_time = mf->external_trigger_time_limit;
+				vcb->motion_sync_time = vcb->t_cur + mf->fifo_trigger_time_limit;
+				vcb->max_record_time = mf->fifo_trigger_time_limit;
 				}
 			else
 				{
-				vcb->motion_sync_time = t_cur + pikrellcam.motion_times.post_capture;
+				vcb->motion_sync_time = vcb->t_cur + pikrellcam.motion_times.post_capture;
 				vcb->max_record_time = pikrellcam.motion_record_time_limit;
 				}
-
-			/* Schedule any motion begin command.
-			*/
-			event |= EVENT_MOTION_BEGIN;
 			}
 
-		if (vcb->state == VCB_STATE_MANUAL_RECORD_START)
+		if (   vcb->state == VCB_STATE_MANUAL_RECORD_START
+		    || vcb->state == VCB_STATE_LOOP_RECORD_START
+		   )
 			{
 			/* Write mp4 header and set tail to most recent keyframe.
 			|  So manual records may have up to about a sec pre_capture.
@@ -675,13 +771,19 @@ video_h264_encoder_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *mmalbuf)
 			pikrellcam.video_header_size = vcb->h264_header_position;
 			pikrellcam.video_size = vcb->h264_header_position;
 
-			vcb->tail = vcb->key_frame[vcb->record_start_frame_index].position;
+			kf = &vcb->key_frame[vcb->record_start_frame_index];
+			vcb->tail = kf->position;
+//			video_buffer_write(vcb);
+			vcb->frame_count = kf->frame_count;
+			vcb->state = (vcb->state == VCB_STATE_LOOP_RECORD_START)
+					? VCB_STATE_LOOP_RECORD : VCB_STATE_MANUAL_RECORD;
 
-			vcb_video_write(vcb);
-			vcb->frame_count = vcb->key_frame[vcb->record_start_frame_index].frame_count;
+			if (pikrellcam.audio_debug & 0x4)
+				printf("video pre-capture frames:%d\n", vcb->video_frame_count);
+			vcb->last_pts = cur_pts;
+			audio_buffer_set_record_head_tail(acb, audio_head, kf->audio_position);
+
 			pts_prev = 0;
-			vcb->state = VCB_STATE_MANUAL_RECORD;
-			event |= EVENT_PREVIEW_SAVE;
 			}
 
 		if (h264_conn_status == H264_TCP_SEND_HEADER) 
@@ -719,17 +821,30 @@ video_h264_encoder_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *mmalbuf)
 			{
 			t_elapsed = vcb->record_elapsed_time;
 			if (vcb->state == VCB_STATE_MOTION_RECORD)
-				t_elapsed -= (mf->external_trigger_pre_capture > 0) ?
-							  mf->external_trigger_pre_capture
+				t_elapsed -= (mf->fifo_trigger_pre_capture > 0) ?
+							  mf->fifo_trigger_pre_capture
 							: pikrellcam.motion_times.pre_capture;
-			else
+			else if (vcb->state == VCB_STATE_MANUAL_RECORD)
 				t_elapsed -= vcb->manual_pre_capture;
 
 			if (t_elapsed >= vcb->max_record_time)
+				{
+				if (vcb->state & VCB_STATE_LOOP_RECORD)
+					pikrellcam.loop_next_keyframe = vcb->cur_frame_index;
 				force_stop = TRUE;
+				}
 			}
-
-		if (vcb->state == VCB_STATE_MANUAL_RECORD)
+		if (vcb->state & VCB_STATE_LOOP_RECORD)
+			{
+			if (mmalbuf->pts > 0)
+				vcb->last_pts = mmalbuf->pts;
+			vcb->video_frame_count = vcb->frame_count;
+			audio_buffer_set_record_head(acb, audio_head);
+//			video_buffer_write(vcb);
+			if (force_stop)
+				video_record_stop(vcb);
+			}
+		else if (vcb->state == VCB_STATE_MANUAL_RECORD)
 			{
 			if (!vcb->pause)
 				{
@@ -741,13 +856,34 @@ video_h264_encoder_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *mmalbuf)
 						vcb->last_pts = mmalbuf->pts;
 					pts_prev = mmalbuf->pts;
 					}
+				i = 0;
 				if (prev_pause)
 					{
 					vcb->frame_count += pause_frame_count_adjust;
+					i = audio_frames_offset_from_video(acb);
+
+					if (pikrellcam.audio_debug & 0x4)
+						printf("Pause stop  - frame_count_adjust:%d frame_count:%d i:%d time_usec:%d\n",
+							pause_frame_count_adjust, vcb->frame_count, i,
+							(int)(vcb->last_pts - pikrellcam.video_start_pts));
+
 					pause_frame_count_adjust = 0;
 					}
 				vcb->video_frame_count = vcb->frame_count;
-				vcb_video_write(vcb);	/* Continuously write video data */
+				if (i >= 0)		/* No adjust if sound leads video */
+					audio_buffer_set_record_head(acb, audio_head);
+				else
+					audio_buffer_set_record_head_tail(acb, audio_head, i);
+				vcb->record_hold = FALSE;
+//				video_buffer_write(vcb);
+				}
+			else
+				{
+				vcb->record_hold = TRUE;
+				if ((pikrellcam.audio_debug & 0x4) && !prev_pause)
+					printf("Pause start - frame_count:%d pause_frame_count:%d time_usec:%d\n",
+						vcb->frame_count, pause_frame_count_adjust,
+						(int)(vcb->last_pts - pikrellcam.video_start_pts));
 				}
 			prev_pause = vcb->pause;
 	
@@ -765,16 +901,21 @@ video_h264_encoder_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *mmalbuf)
 			|  reached and we stop recording with the post_capture time
 			|  already written.
 			*/
-			if (t_cur <= vcb->motion_sync_time)
+			if (vcb->t_cur <= vcb->motion_sync_time)
 				{
 				if (mmalbuf->pts > 0)
 					vcb->last_pts = mmalbuf->pts;
 				vcb->video_frame_count = vcb->frame_count;
-				vcb_video_write(vcb);
+				vcb->record_hold = FALSE;
+//				video_buffer_write(vcb);
+				audio_buffer_set_record_head(acb, audio_head);
 				}
+			else
+				vcb->record_hold = TRUE;
+
 			if (   force_stop
-		        || (   mf->external_trigger_time_limit == 0
-			        && t_cur >= vcb->motion_last_detect_time + pikrellcam.motion_times.event_gap
+		        || (   mf->fifo_trigger_time_limit == 0
+			        && vcb->t_cur >= vcb->motion_last_detect_time + pikrellcam.motion_times.event_gap
 			       )
 		       )
 				{
@@ -783,31 +924,11 @@ video_h264_encoder_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *mmalbuf)
 				|  there is a preview save waiting to be handled.
 				*/
 				video_record_stop(vcb);
-				event |= EVENT_MOTION_END;
-				if (strcmp(pikrellcam.motion_preview_save_mode, "first") != 0)
-					event |= EVENT_MOTION_PREVIEW_SAVE_CMD;
 				}
 			}
 		}
 	pthread_mutex_unlock(&vcb->mutex);
 	return_buffer_to_port(port, mmalbuf);
-
-	/* This handles preview saves for manual records for possible future use.
-	|  preview_save_cmd does not apply for manual records.
-	|  All preview saves for motion records are scheduled in motion_frame_process().
-	|  preview_save_cmd for save mode "best" is handled in video_record_stop().
-	*/
-	if (event & EVENT_PREVIEW_SAVE)
-		event_add("manual preview save", pikrellcam.t_now, 0,
-					event_preview_save, NULL);
-
-	if (   (event & EVENT_MOTION_BEGIN)
-	    && *pikrellcam.on_motion_begin_cmd != '\0'
-	   )
-		event_add("motion begin", pikrellcam.t_now, 0,
-					exec_no_wait, pikrellcam.on_motion_begin_cmd);
-	/* motion end event and preview dispose are handled in video_record_stop()
-	*/
 	}
 
 static void
@@ -1065,6 +1186,7 @@ camera_create(void)
 		mmal_component_destroy(camera.component);
 		return FALSE;
 		}
+
 	return TRUE;
 	}
 

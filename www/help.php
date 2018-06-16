@@ -51,7 +51,10 @@ $header .= "<div><a class='text-shadow-large'
 			style='text-decoration: none;' href='index.php'>$title</a></div></div></div>";
 echo $header;
 
-echo "<div style='color: $default_text_color; margin-left: 1cm; margin-right: 2cm'>"
+//echo "<div style='color: $default_text_color; margin-left: 1cm; margin-right: 2cm'>";
+$div_style = "color: $default_text_color; overflow-y: scroll; height:${n_log_scroll_pixels}px; overflow-x: auto; border:4px groove silver";
+echo "<div style='$div_style'>";
+echo "<div style='color: $default_text_color; margin-left: 0.5cm; margin-right: 0.5cm;'>";
 ?>
 
 <span style='font-size: 1.5em; font-weight: 650;'>Introduction</span><hr>
@@ -60,12 +63,70 @@ For an overview description of PiKrellCam, visit the
 <a href="http://billw2.github.io/pikrellcam/pikrellcam.html">PiKrellCam website</a><br>
 And there is a Raspberry Pi
 <a href="https://www.raspberrypi.org/forums/viewtopic.php?f=43&t=115583">PiKrellCam forum</a>
-<p>
-Under construction...
 </div>
 
 <span style='font-size: 1.5em; font-weight: 650;'>Release Notes</span><hr>
 <div class='indent0'>
+
+Version 4.1.5
+<div class='indent1'>
+Archive directory <a href="help.php#ARCHIVING">NFS mount examples.</a><br>
+Archive Calendar can view by year.<br>
+Updated scripts-dist/startup script has NFS archive mounting.
+</div>
+
+Version 4.1.4
+<div class='indent1'>
+Bug fix for pikrellcam Start from web page: use installing user instead
+of hard wired "pi".<br>
+New scripts-dist/example-motion-events demo of processing
+<nobr>/run/pikrellcam/motion-events.</nobr><br>
+The <a href="help.php#MOTION_TRIGGER">motion trigger</a> FIFO command can
+encode for user defined trigger type (PIR, laser, etc).
+Previously web page showed "Extern" for videos with only a FIFO trigger, but
+now shows either "FIFO" or the user defined trigger type string.
+</div>
+
+Version 4.1.3
+<div class='indent1'>
+An <a href="help.php#AUDIO_TRIGGER">audio trigger</a>
+event can start a motion video record.<br>
+This help page describes <a href="help.php#VIDEO_TYPES">Video Types</a><br>
+Fix 2 channel audio recording bug.
+</div>
+
+Version 4.1.2 - Fix record to end of event_gap bug. Add day_loop arg to archive_video command.
+<br>
+Version 4.1.0
+<div class='indent1'>
+<a href="help.php#LOOP">Loop recording</a> with percent
+<a href="help.php#DISKUSAGE">diskusage limit</a>
+checking to auto delete oldest loop videos.<br>
+Disk free percent checking for stills/timelapse.<br>
+pikrellcam.conf: on_manual_end on_loop_end on_motion_enable.
+</div>
+
+Version 4.0.5
+<div class='indent1'>
+<a href="help.php#DISKFREE">Disk free limit for media videos</a><br>
+Stills have a thumbs view.
+</div>
+<p>
+
+Version 4.0.4 - Fix annotation strings to allow spaces and longer length.
+<br>
+Version 4.0.2 - Bugfix for $v variable passed to on_motion_end.
+<br>
+Version 4.0.1 - Change for libmp3lame segfault. Simplify running on_motion_end_cmd.
+<br>
+Version 4.0.0
+<div class='indent1'>
+<a href="help.php#AUDIO">Audio recording</a> - For Jessie Lite & Minibian
+	users, libmp3lame0 and libasound2 need to be installed or else after
+	upgrading to PiKrellCam 4.0, a restart will fail.
+	Rerun the install script or install by apt-get.
+</div>
+<p>
 Version 3.1
 <div class='indent1'>
 <a href="help.php#MULTICAST_INTERFACE">multicast interface</a><br>
@@ -73,48 +134,15 @@ Version 3.1
 </div>
 
 </div>
-Version 3.0
-<div class='indent1'>
-The upgrade from PiKrellcam V2.x to PiKrellCam V3.0 adds presets and servo control.<br>
-This is documented below on this page, but there are changes in how
-motion regions usage is handled that is important to be aware of up front:
-<ul>
-	<li> The use of saving and loading of motion regions by name is no longer the primary
-	way to change the motion regions in effect.  Saving and loading regions by name now
-	has a new role of maintaining a set of motion regions as temporaries for backup or
-	using as an initial condition to be loaded when creating a new preset.
-	</li>
-	<li> If motion regions are edited or a new set loaded by name, the changes are
-	automatically stored into the current preset (unless you have servos and are off
-	a preset - see below).  So if you edit motion regions the current preset is
-	changed and there is no need to save by name unless you want the backup.
-	</li>
-	<li> When pikrellcam is restarted, it loads the preset you were on when pikrellcam
-	stopped.  If for example, you have a preset 1 set up for default use and a preset 2
-	for windy conditions, then if you want to be sure that at program start preset 1 is
-	selected, you should have in at-commands.conf:
-<pre>
-daily  start  "@preset goto 1 1"
-</pre>
-	If you have servos, you might want to have a position number other than "1".<br>
-	This would replace the use of an at command to load regions and if you have such
-	a startup motion load_regions command, you probably want to take that out.  If you
-	don't take it out and don't have a startup preset goto, the regions will be loaded
-	into whatever preset you restart with which can be not what you want.
-	If you do use a startup
-	preset goto command, also having a startup motion load_regions is likely redundant
-	because the preset remembers its motion regions.
-	</li>
-</ul>
-</div>
-</div>
 
 
 <span style='font-size: 1.5em; font-weight: 650;'>Install</span><hr>
 <div class='indent0'>
 PiKrellCam is installed from a github git repository using the command line. The install
-is cloning the repository in the /home/pi directory and running the install script
-(an install for a user other than pi is possible):
+is cloning the repository in the /home/pi directory and running the install script.
+An install for a user other than pi should be possible.  The user needs sudo permission at
+least for commands chown, chmod, mkdir and should be in groups audio and video
+(and gpio if using servos).
 <pre>
 cd /home/pi
 git clone https://github.com/billw2/pikrellcam.git
@@ -269,10 +297,103 @@ Go to the PiKrellCam web page in your browser (omit the port number if it was le
 	setup are required.  Follow the
 	<nobr><a href="https://www.raspberrypi.org/forums/viewtopic.php?p=862399#p862399">
 	rtsp live video setup instructions</a></nobr> on the forum and you can view the stream
-	with vlc.
+	with vlc.  See also
+	<nobr><a href="https://www.raspberrypi.org/forums/viewtopic.php?f=43&t=115583&start=1200#p1239346">.
 	</li>
 	</ul>
 </div>
+</div>
+
+<a name="VIDEO_TYPES">
+<span style='font-size: 1.5em; font-weight: 650;'>Video Types</span><hr>
+<div class='indent0'>
+There are two top level video types each viewed on a separate page and each
+has subtypes encoded in the video name:
+<p>
+<nobr><span style=\"color: $default_text_color\"> Media:</span>
+<span class='btn-control'>Videos</span></nobr>
+<div class='indent1'>
+These are videos of variable length with the recording triggered by some
+event.
+<ul>
+	<li>
+		<span style='font-weight:700'>Manual</span> - videos are triggered by
+		a record on|off command sent into the FIFO and have a "manual_"
+		prefix.  The web page thumb will have a "Manual" label and will be
+		of the full preview image.
+	</li>
+	<li>
+		<span style='font-weight:700'>Motion</span> - videos have
+		motion vector direction or burst detects and may also have
+		FIFO motion trigger commands or audio triggers.
+		These will have a "motion_" prefix.
+		The web page thumb will have no extra label and will be
+		a square aspect image of the detected motion area.
+	</li>
+	<li>
+		<span style='font-weight:700'>FIFO</span> - videos are triggered by
+		a motion trigger command sent into the FIFO and will have no motion
+		vector detects but may have audio triggers.
+		These will have an "ext-code_" prefix where code is "FIFO" or a
+		user supplied code string (such as "PIR" or "laser", new for V 4.1.4)
+		in the motion trigger command.
+		The web page thumb will have "FIFO" or the user supplied
+		code string as a label and will be of the full preview image.<br>
+		Before V 4.1.4, these types of videos were labeled "Extern".
+	</li>
+	<li>
+		<span style='font-weight:700'>Audio</span> - videos are triggered by
+		an audio trigger and will have no motion vector detects or FIFO
+		command triggers.
+		These will have an "audio_" prefix.
+		The web page thumb will have an "Audio" label and will be
+		of the full preview image.  Since this is an audio event only video
+		there is an option to omit boxing the h264 video.  In this case the
+		resulting .mp4 file will have only MP3 audio and no video and so will
+		be a much smaller size.
+		See the "Box_MP3_Only" option in the Config Settings->Audio.
+	</li>
+</ul>
+A video that starts as type "FIFO" or "Audio" will change to
+type "Motion" if motion direction vectors or bursts are detected later
+during the video.  Similarly, type "Audio" can change to type "FIFO".
+</div>
+<p>
+<nobr><span style=\"color: $default_text_color\"> Media:</span>
+<span class='btn-control'>Loop</span></nobr>
+<div class='indent1'>
+These are continuously recorded videos of a fixed configurable length.  If
+motion is enabled while loop recording, any motion, FIFO or audio trigger
+event will cause the video to be tagged as having a motion event and the web
+page thumb will be labeled to show that.
+<ul>
+	<li>
+	Loop videos with no motion event will end with
+	<span style='font-weight:700'>_0.mp4</span>.
+	</li>
+	<li>
+	Loop videos with a motion vector detect will end with
+	<span style='font-weight:700'>_m.mp4</span> (previous versions used
+	 _1.mp4) and will have a "Motion" label on the web page thumb.
+	The thumb image will be a motion detect area.
+	</li>
+	<li>
+	Loop videos with motion externally triggered (a motion trigger command was
+	sent into the FIFO) and no motion vector detects will end with
+	<span style='font-weight:700'>_e-ID.mp4</span> and will have a "ID" label
+	on the web page thumb where "ID" is "FIFO" or the user defined ID
+	string in the motion trigger command.
+	The thumb image will be of the full preview image.
+	</li>
+	<li>
+	Loop videos with an audio trigger and no motion vector detects or FIFO
+	triggers will end with
+	<span style='font-weight:700'>_a.mp4</span> and will have an "Audio" label
+	on the web page thumb. The thumb image will be of the full preview image.
+	</li>
+</ul>
+</div>
+
 </div>
 
 
@@ -339,7 +460,9 @@ get a better look at the vectors, you can temporarily raise the mjpeg_divider
 value so the OSD will update more slowly.  
 <p>
 <span style='font-size: 1.2em; font-weight: 680;'>Example Motion Detects</span>
+<div style='margin-left: 1.5cm;'>
 <img src="images/vector0.jpg" alt="vector0.jpg"> 
+</div>
 <p>
 <span style='font-size: 1.2em; font-weight: 680;'>Notes:</span>
 <ul>
@@ -520,6 +643,8 @@ again or the servo reaches a pan/tilt limit.
 </div>
 
 
+
+
 <span style='font-size: 1.5em; font-weight: 650;'>Motion Regions Panel</span><hr>
 <img src="images/motion-regions.jpg" alt="motion-regions.jpg"> 
 <div class='indent0'>
@@ -697,14 +822,42 @@ Preset group and there will be no Servo button in the Config group.
 		<li><span style='font-weight:700'>Still Res</span> - selecting different resolutions
 		gives different fields of view and aspect ratios.
 		</li>
+<a name="DISKFREE">
 		<li><span style='font-weight:700'>Settings</span>
 			<ul>
 			<li><span style='font-weight:700'>Startup_Motion</span> - set to
 			<span style='font-weight:700'>ON</span> for motion detection to be enabled each time
-			PiKrellCam starts.  If set to
-			<span style='font-weight:700'>OFF</span>, motion detection will need to be manually
+			PiKrellCam starts.  Motion detection can be
 			enabled from the web page or a script.
 			</li>
+
+			<li><span style='font-weight:700'>Check_Media_Diskfree</span>
+			- if set <span style='font-weight:700'>ON</span>, when new motion
+			or manual videos or stills/timelapse are recorded, delete
+			oldest videos or jpegs so that the configured minimum
+			Diskfree_Percent will be maintained on the media file system.
+			</li>
+
+			<li><span style='font-weight:700'>Check_Archive_Diskfree</span>
+			- if set <span style='font-weight:700'>ON</span>, when media
+			motion or manual videos are archived, delete oldest archived videos
+			so that the configured minimum Diskfree_Percent
+			will be maintained on the archive file system.
+			This is useful when the archive is on a file system
+			separate from the media videos.  But if the archive and media
+			directories are on the same file system, checking the archive
+			has no or negligible effect since an archive operation is simply
+			moving media videos and except for some directory structure overhead
+			is not increasing disk usage.
+			</li>
+			<li><span style='font-weight:700'>Diskfree_Percent</span>
+			- maintain this minimum free percent on media and archive
+			file systems when checking is enabled for those file systems
+			by deleting oldest videos or stills/timelapse.
+			This is always enabled for loop videos and overrides
+			Diskusage_Percent.
+			</li>
+
 			<li><span style='font-weight:700'>video_bitrate</span> - determines the size of a video
 			and its quality.  Adjust up if it improves video quality.  Adjust down if you want
 			to reduce the size of the videos.
@@ -793,6 +946,51 @@ Preset group and there will be no Servo button in the Config group.
 			is configured.
 			</div>
 		</li>
+<a name="DISKUSAGE">
+		<li><span style='font-weight:700'>Loop</span><br>
+			<ul>
+			<li><span style='font-weight:700'>Startup_Loop</span> - set to
+			<span style='font-weight:700'>ON</span> for loop recordings to
+			be enabled each time PiKrellCam starts.  Loop recording can be
+			enabled from the web page or a script or an at-command.
+			</li>
+			<li><span style='font-weight:700'>Time_Limit</span>
+			- loop video length in seconds.
+			</li>
+			<li><span style='font-weight:700'>Diskusage_Percent</span>
+			- Limit disk space used by loop videos to this percent
+			by deleting oldest loop videos as new ones are recorded.
+			Loop diskusage checks cannot be disabled.  If the free space on
+			on the loop videos filesystem falls to the configured
+			Diskfree_Percent then that will override this disk usage percent
+			and allowed loop video disk usage can shrink below this value.
+            </li>
+			</ul>
+		</li>
+<a name="AUDIO_TRIGGER">
+		<li><span style='font-weight:700'>Audio</span><br>
+			<ul>
+			<li><span style='font-weight:700'>Audio_Trigger_Video</span>
+			- set to <span style='font-weight:700'>ON</span>
+			to enable audio events to be treated as motion events to trigger
+			motion videos.
+			</li>
+			<li><span style='font-weight:700'>Audio_Trigger_Level</span>
+			- sets the audio level to be met or exceeded for triggering a
+			motion video.
+			</li>
+			<li><span style='font-weight:700'>Box_MP3_Only</span>
+			- if set <span style='font-weight:700'>ON</span>
+			and there are only audio triggers (no motion vector detects or
+			external triggers)
+			during a video recording, then do not include the h264 video
+			in the MP4 boxing.  The resulting recording will be a .mp4
+			boxed file containing only MP3 data and no video.  Use this option
+			if you want to save disk space for recordings that have audio
+			but may not have interesting video.
+			</li>
+			</ul>
+		</li>
 		<li><span style='font-weight:700'>Servo</span><br>
 			The Servo menu is shown only if servos have been configured.
 			<ul>
@@ -839,6 +1037,293 @@ Preset group and there will be no Servo button in the Config group.
 	</div>
 
 </div>
+
+
+
+<a name="AUDIO">
+<span style='font-size: 1.5em; font-weight: 650;'>Audio</span><hr>
+<div class='indent0'>
+Pikrellcam can do two independent audio MP3 encodes.  One encode
+is for recording audio with videos and is sourced from PCM sound data stored
+in a circular buffer so there can be in sync pre-captured sound to track
+video pre-capture.  The other encode is for streaming MP3 sound to a browser
+(but see Issues) and is sourced from PCM sound data as it is read
+from the sound capture device.
+The streamed audio is not in sync with the mjpeg image stream
+displayed by the browser because audio buffering will cause a
+couple of seconds delay.
+<p>
+Connect an ALSA input capture device such as
+USB sound card + microphone, USB mini microphone, or other which can
+be recognized by running
+<span style='font-weight:700'>arecord -l</span>.
+If arecord can record from the device and aplay play the wav file,
+then pikrellcam should work using the same sound device.  You may need to
+run alsamixer to unmute the microphone input and set the capture level.
+If you need more information than the basic setup listed here, the web
+has many Pi microphone tutorials to look at.
+<br>
+So a microphone setup for PiKrellCam is:
+<ul>
+	<li>
+	The user <span style='font-weight:700'>pi</span>
+	must be in the audio group.<br>
+	Connect the USB sound card + microphone and the kernel should
+	load the USB sound modules.
+	Verify the sound card number using arecord.
+	I get card 1 and use that for the remaining examples:
+<pre>
+pi@rpi2: ~$ arecord -l | grep USB
+card 1: Device [USB PnP Sound Device], device 0: USB Audio [USB Audio]
+</pre>
+	</li>
+	<li> Run alsamixer on card 1 and make sure the microphone input is
+	not muted.  Probably set the input sensitivy high.
+	In alsamixer, press F4 to show controls
+	for the microphone capture input for the card.
+<pre>
+pi@rpi2: ~$ alsamixer -c 1
+</pre>
+	</li>
+	<li>
+	For sound card 1, the ALSA hardware device is plughw:1.
+	Test that device by recording and playing an audio wav file:
+<pre>
+  # Do a basic 5 second record:
+pi@rpi2: ~$ arecord  -D plughw:1 -d 5  test.wav
+  # And also check using parameters the same as pikrellcam recording defaults,
+  # defaults are: device: plughw:1  channels: 1  rate: 24000 or 48000  16 bit audio.
+arecord -D plughw:1 -d 5 -c 1 -f s16_LE -r 24000 test.wav
+  # Play the sound:
+pi@rpi2: ~$ aplay test.wav
+</pre>
+	</li>
+	<li> If the USB sound card is not plughw:1, edit
+	audio_device in pikrellcam.conf to be the correct device
+	and restart pikrellcam.
+	</li>
+	<li> Enable/disable audio recording is done by clicking the microphone
+		audio control toggle button on the web page.  An audio VU meter is
+		drawn on the OSD when the microphone is successfully opened.
+	</li>
+</ul>
+
+<p>
+<span style='font-size: 1.2em; font-weight: 680;'>Audio Control Buttons</span><br>
+<div class='indent1'>
+<img src="images/audio-controls.jpg" alt="audio-controls.jpg"> 
+Web page audio control buttons are left to right:
+<ul>
+	<li><span style='font-weight:700'>Audio Stream Stop</span> -
+		The OSD moving stream indicator will disappear.
+	</li>
+	<li><span style='font-weight:700'>Audio Stream Play</span> - If the
+		microphone is open, PCM audio is encoded into MP3 audio
+		which can be played by a browser (see Issues). When streaming is on,
+		the OSD shows a moving streaming indicator under the VU meter and
+		gain value.
+	</li>
+	<li><span style='font-weight:700'>Microphone Toggle</span> - Opens and
+		closes the microphone. When the microphone is open, the OSD shows a
+		vertical audio VU meter with the current gain value printed under
+		it. With the microphone opened, audio is recorded with videos and
+		can be streamed.
+	</li>
+	<li><span style='font-weight:700'>Audio Gain Up</span> - Increment the
+		audio gain up to 30dB.
+		This is not the gain set by alsamixer but is an additional
+		amplication of the PCM sound data read from ALSA to help boost audio
+		at the expense of amplified noise and risk of distortion from clipping.
+	</li>
+	<li><span style='font-weight:700'>Audio Gain Down</span> - Decrement the
+		audio gain in dB to a minimum of 0dB (amplification factor is 1).
+	</li>
+</ul>
+
+</div>
+<span style='font-size: 1.2em; font-weight: 680;'>Audio Parameters in pikrellcam.conf</span><br>
+<div class='indent1'>
+Edit pikrellcam.conf to change these settings:
+
+<ul>
+	<li><span style='font-weight:700'>audio_device</span> - default: plughw:1<br>
+		Sets the ALSA hardware audio input (microphone) capture device.
+	</li>
+	<li><span style='font-weight:700'>audio_rate_Pi2</span> - default: 48000<br>
+	    <span style='font-weight:700'>audio_rate_Pi1</span> - default: 24000<br>
+		Audio sample rate used for a single core Pi and Pi model 2.
+		Lame docs suggest using only MP3 supported sample rates:<br>
+	&nbsp;&nbsp;&nbsp; 8000 11025 12000 16000 22050 24000 32000 44100 48000<br>
+	</li>
+	<li><span style='font-weight:700'>audio_channels</span> - default: 1<br>
+		Set to 1 for mono or 2 for stereo.  If using a common
+		USB sound card that supports only one channel, setting 2 will
+		be reverted to 1 when pikrellcam opens the microphone.
+	</li>
+	<li><span style='font-weight:700'>audio_mp3_quality_Pi2</span> - default: 2<br>
+	    <span style='font-weight:700'>audio_mp3_quality_Pi1</span> - default: 7<br>
+		Value for quality of the lame lib encode of PCM to MP3 audio for
+		a single core Pi and Pi model 2.
+		Values range from 0 (best quality but very slow encode) to 9
+		(worst qualilty but fast encode). Lame docs say 2 is near best and
+		not too slow and 7 is OK quality and a really fast encode.
+	</li>
+</ul>
+Pi single core and quad core models have separate settings
+for sample rate and encode quality because two simultaneous audio MP3
+encodings can push a single core to very high CPU usage.  A Pi2/3 does not have
+a CPU usage issue.  This image shows CPU usage for a single core Pi
+to give an idea of what to expect.  Streaming audio while recording
+(R2 interval: two MP3 encodes) uses high CPU and causes
+an extended video conversion time (C2 interval: one MP3 encode).
+It is the particular Pi1 use case of expected video length/frequency and
+any overclocking that determines what audio sample rate and encode
+quality should be set and whether it is wise to stream audio
+while videos are recording.
+<p>
+<img src="images/cpu-usage.jpg" alt="cpu-usage.jpg">
+
+</div>
+
+<p>
+<span style='font-size: 1.2em; font-weight: 680;'>Limitations & Issues</span><br>
+<div class='indent1'>
+<ul>
+	<li> Audio MP3 streaming works for me to Firefox but not to Chromium
+		for some reason. Don't know if YMMV on this.
+	</li>
+	<li> FYI, sometimes clicking the microphone toggle button can fail to open
+		the microphone because the device is busy, but clicking it
+		some more eventually succeeds.
+		Running arecord can similarly fail with device busy so it may
+		be some issue with USB sound cards.
+	<li> If a video has out of sync audio, check the log to see if
+		the actual video fps and audio rate was what is configured.
+		If these are off, then data has been lost during the record.  This
+		is likely more a possible issue on a Pi1.
+	</li>
+	<li> Audio cannot be streamed to more than one web page at a time.
+	</li>
+	<li> ALSA audio capture devices cannot be opened by more than one
+		application.  If a microphone is needed for another purpose, it
+		cannot also be open in pikrellcam.
+	</li>
+</ul>
+</div>
+
+<p>
+<span style='font-size: 1.2em; font-weight: 680;'>Microphones</span><br>
+<div class='indent1'>
+A high
+<a href="https://geoffthegreygeek.com/microphone-sensitivity/">
+microphone sensitivity</a> is likely needed for a PiKrellCam application
+which wants to pick up related audio when recording events at some
+distance from the camera.
+A cheap way to experiment is to order some
+<a href="http://www.hobby-hour.com/electronics/computer_microphone.php">
+electret microphones</a>
+from an electronics supplier and solder them to a 3.5mm plug.  I have been
+using electrets with sensitivities from
+<a href="http://www.mouser.com/ProductDetail/DB-Unlimited/MO093803-1/?qs=sGAEpiMZZMvxTCYhU%252bW9md6RLkZl0Nse48Qi7C4xp2w%3d">
+-38dB</a> to
+<a href="http://www.mouser.com/ProductDetail/CUI/CMC-6027-24T/?qs=sGAEpiMZZMuCv89HBVkAk5iC6ZN50VtrfpvYg8FFM2E%3d">
+-24dB</a>
+ordered from Mouser, but similar ones should be available from other
+suppliers near you.  USB sound cards I have tried so far have the
+microphone jack tip internally shorted to the ring.  To check, connect the
+plug to the sound card and measure for zero resistance between the tip and
+ring lugs.  So I simply solder the microphone (-) terminal to plug ground
+and the microphone (+) terminal to either the plug tip or ring.
+<p>
+<img src="images/electret.jpg" alt="electret.jpg">
+<p>
+Noise is a possible issue when using sensitive omnidirectional microphones.
+A couple of likely causes are power line hum from the surrounding
+microphone environment or electrical noise getting into the USB sound
+card through the power supply.
+So microphone placement and a clean power supply can be important.
+</div>
+
+</div>
+
+
+
+<a name="LOOP">
+<span style='font-size: 1.5em; font-weight: 650;'>Loop Recording</span><hr>
+<div class='indent0'>
+Click the loop record button
+<input type="image" src="images/loop.png">
+to toggle recording continuous loop videos.
+If motion is enabled during a loop video and motion
+detected, the motion commands are run (on_motion_begin, on_motion_preview_save,
+on_motion_end) and the web page thumbnail for the loop video will
+show that motion occurred.
+<p>
+The default loop directory is under the ~/pikrellcam/media directory.
+This directory can be mounted with a dedicated loop file system and mounting
+can be done in fstab or in the pikrellcam startup script.  Or a
+dedicated disk can be mounted to some other directory if the loop_dir
+value in pikrellcam.conf is edited to reference that location.
+<p>
+Loop video recording continuously wears flash disks,
+so if that is an issue, they can be enabled only for limited times
+of interest with commands sent to the FIFO:
+<pre>
+echo "loop on" > ~/pikrellcam/www/FIFO
+echo "loop off" > ~/pikrellcam/www/FIFO
+echo "loop toggle" > ~/pikrellcam/www/FIFO
+</pre>
+or commands in at-commands.conf like:
+<pre>
+Mon-Fri 7:30   "@loop on"
+Mon-Fri 9:30   "@loop off"
+</pre>
+
+Oldest loop videos are automatically deleted to enforce both a configured
+maximum disk usage percent and configured minimum disk free percent with a
+priority on minimum disk free percent.  The idea is to have a fixed maximum
+diskusage percent for loop videos and then media videos (manual and motion)
+and archived videos are allowed to grow until a minimum disk free percent
+remains if disk free checking is enabled for those videos.
+<p>
+Examples on the interactions of loop recording, setting disk percent
+limits and enabling disk free checking for motion videos:
+        <ul>
+            <li> Media videos, archived videos and loop videos
+            are all on the same mounted file system that is different
+            from the SD card OS file system.  If the
+            Diskusage_Percent is set to say 50% and Diskfree_Percent
+            is 10%, then there will be up to 40% of shared disk space
+            available for media and archived videos. Setting
+            Check_Archive_Diskfree ON has little to no effect because
+            archiving is moving files within the same file system and
+            not using more disk space.
+            </li>
+            <li> Media videos and loop videos are all on
+            the same file system that is shared with the OS on a
+            SD card where the OS uses about 1/2 of the space. If
+            Diskusage_Percent is set to 25% and Diskfree_Percent
+            is set to 10%, then up to 15% disk space will be
+            available for media videos.  Archiving has the same effect
+            as above.
+            </li>
+            <li> Media videos, archive videos and loop videos are each
+            on separate file systems (disks mounted and dedicated to each
+            video type).  If Diskfree_Percent is 10%, media videos
+            can use up to 90% disk space, and Diskusage_Percent
+            can be set high to 90% to use almost all of loop video disk
+            space. In this case Check_Archive_Diskfree can be set ON
+            and the oldest archived videos will be deleted to maintain a
+            Diskfree_Percent minimum applied to the archive disk.
+            </li>
+        </ul>
+Configure the loop time limit and max diskusage percent in the web page
+Setup->Config->Loop.
+
+</div>
+
+
+
 
 <span style='font-size: 1.5em; font-weight: 650;'>Configuration Files</span><hr>
 <div class='indent0'>
@@ -889,12 +1374,15 @@ Preset group and there will be no Servo button in the Config group.
 <p>
 <span style='font-size: 1.2em; font-weight: 650;'>~/pikrellcam/www/config-user.php</span>
 	<div class='indent1'>
-	Edit this file to change web page appearance and some web page behavior.  If the file
-	is edited, reload web pages to see the results.
+	Edit this file to change web page appearance and some web page behavior.
+	Some variables in this file can be modified by web page buttons and some
+	require manual edits. If the file is edited, reload web pages
+	to see the results.
 	<ul>
-	<li> The image used for the web page background can be changed to another PiKrellCam
-	distribution image or to your custom background image.  Any custom background image name
-	must begin with <span style='font-weight:700'>bg_</span>
+	<li> The image used for the web page background can be changed to another
+	PiKrellCam distribution image or to your custom background image you place
+	in the <nobr>~/pikrellcam/www/images</nobr> directory. Any custom image
+	name you create must begin with <span style='font-weight:700'>bg_</span>
 	or else the image will be deleted by git when you do an upgrade.
 	</li>
 	<li> Web page text colors can be changed.  If the background is changed to a
@@ -965,77 +1453,296 @@ archive_dir archive
 </pre>
 
 With this setup, all media files are stored on the Pi SD card.  Media files may be configured to
-be stored on an external USB disk by editing the <nobr>~/pikrellcam/scripts/startup</nobr> file to uncomment
+be stored on an external disk by editing the <nobr>~/pikrellcam/scripts/startup</nobr> file to uncomment
 the line:
 <pre>
 MOUNT_DISK=sda1
 </pre>
 <p>
 This assumes there is a single USB disk plugged into the Pi and it appears as
-<nobr>/dev/sda</nobr>.  If this USB disk has a linux filesystem on
+<nobr>/dev/sda</nobr>.
+If this USB disk has a linux filesystem on
 <nobr>/dev/sda1</nobr>, pikrellcam can create directories with the
 needed permissions.  However, if the filesystem is not a linux filesystem
-(eg. VFAT or FAT32) then pikrellcam cannot set up the needed permissions for the
-web interface to work and media files will not be shown
+(eg. VFAT or FAT32) then pikrellcam cannot set up the needed permissions for
+the web interface to work and media files will not be shown
 unless the proper permissions are specified when
-the partition is mounted.  For this case, the mount command or fstab entry
-should specify umask or dmask/fmask permissions of 0002.  For example,
-use a mount command like:
+the partition is mounted.
+For this case, the mount command or fstab entry
+should specify umask or dmask/fmask permissions of 0002.
+<p>
+Also, the mount point can be somewhere else in the filesystem.  As an
+example, you want a VFAT disk to be mounted on /media/mountdir.
+For this, use absolute pathnames in pikrellcam.conf:
+<pre>
+media_dir /media/mountdir
+</pre>
+In the startup script, use a mount command like:
 <pre>
 sudo mount -t vfat /dev/sda1 /media/mountdir -o rw,user,umask=0002
 </pre>
-or, if using fstab, the entry should be like:
+or, if using fstab instead of the startup script, the entry should be like:
 <pre>
 /dev/sda1   /media/mountdir    vfat    rw,user,umask=0002   0   0
 </pre>
 You can use dmask=0002,fmask=0002 in place of umask=0002.<br>
-With a disk mounted, you can see:
-<pre>
-pi@rpi2: ~$ df -h
-Filesystem      Size  Used Avail Use% Mounted on
-...
-/dev/sda1       3.7G  1.9G  1.6G  54% /home/pi/pikrellcam/media
-</pre>
 <p>
-and the media links in <nobr>~/pikrellcam/www</nobr> will now be pointing into the mounted USB disk.
-The media links may be changed to point to some other part of the filesystem which can be
-mounted with a USB disk or NAS.  Just change the media_dir or archive_dir values in
-pikrellcam.conf to reference an absolute path.
+If mounting a large CIFS filesystem the nounix,noserverino options may
+be needed in fstab so pikrellcam can make directories.  Look at the example
+fstab entry forum
+<a href="https://www.raspberrypi.org/forums/viewtopic.php?p=1123960#p1123960">
+raspberry pi forum</a>
 </div><br><br>
 
+<a name="ARCHIVING">
 <span style='font-size: 1.5em; font-weight: 500;'>Archiving</span><hr>
 <div class='indent0'>
-The main media directory can be where you always manage media files, or it
-can be considered a temporary staging directory where media
-files are reviewed for archiving or deleting.  Over time the number of files to keep can become
-large, difficult to review, and the web page may become sluggish with large numbers of files
-to load at a time.  So an archiving interface is provided in pikrellcam so that media files
-can be managed in smaller groups of days.  
+Archiving videos moves them out of the main media flat directory
+into the archive tree directory where files are stored by day.
+Archiving is useful for organizing large numbers of videos and can be a way
+to move videos into a safer central location from one or more pikrellcam
+camera installs.
+After archiving, media files may be viewed by day, week, month or year by
+clicking links on the calendar accessed through a web page "Archive Calendar"
+button. Archiving of videos is done by clicking a web page "Archive" button to
+operate on selected videos or by issuing archive commmands to the FIFO.
+The archiving process may take time for large video files to be moved to new
+directories, so videos may not immediately disappear from the
+media videos page and appear on the archive pages.
 <p>
-Archiving means to move media files out of the main media flat directory and into the archive
-tree directory where files are stored by day.
-After archiving, media files may be viewed by day, week, or month by clicking links on the
-calendar accessed through a web page "Archive Calendar" button.
+By default, the archive directory is under the pikrellcam media directory
+and so is on the same file system.  But archiving can be to either
+a separate disk mounted on the archive directory (as described above
+for mounting the media directory) or to another machine by network mounting
+on the archive directory.
+A network mount must have file system permissions set so that the pikrellcam
+installing user and www-data have read/write permissions from the Pi.
 <p>
-The archive is a hierarchical directory tree where leaf day directories
-contain media files only for a single day.  When viewing files on the web page, you will see
-a "Media" label for the flat media files view or an "Archive" label when viewing media of
-days from the archive directory tree.
-
-
-
-Pikrellcam does not provide for automatic mounting
-of the archive_dir as it does for the media_dir, but archiving could be set up to be on a separate
-disk.  You could simply mount a disk on <nobr>~/pikrellcam/media/archive</nobr> or mount a disk on
-/mnt/somedisk and edit archive_dir in pikrellcam.conf:
+<span style='font-size: 1.2em; font-weight: 650;'>NFS Archiving Example 1</span>
+<div class='indent1'>
+This is a minimal NFS setup for archiving from a Pi running pikrellcam to a
+desktop machine on a LAN.  Setup is required on both the Pi and the desktop
+and shown here is a specific example using gkrellm6 (my desktop), rpi5
+(one of my Pis running pikrellcam) and my LAN IP addresses.  The same setup
+as for rpi5 can be done for other Pis running pikrellcam and then multiple
+Pis can store videos into the same archive.
+You need your LAN working and change host names and IP addresses appropriate
+for your setup.  nfs-kernel-server must be installed and the web has many
+NFS tutorials you can refer to if you need more than these example steps.
+<p>
+<span style='font-weight:700'>On gkrellm6</span>
+(Desktop running Linux - archiving to)
+<ul>
+	<li>In my home directory /home/bill, make an archive media directory
+	to be NFS mounted by the Pi:
 <pre>
-archive_dir /mnt/somedisk/archive
+$ cd
+$ mkdir media-archive
 </pre>
+	</li>
+	<li>Give permission for this directory to be exported to all
+	other machines on my LAN by adding a line to /etc/exports:
+<pre>
+/home/bill/media-archive 192.168.0.0/25(rw,nohide,no_subtree_check,no_root_squash)
+</pre>
+After editing /etc/exports, restart nfs-kernel-server
+(/home/bill/media-archive must exist):
+<pre>
+$ sudo systemctl restart nfs-kernel-server
+</pre>
+	</li>
+</ul>
+
+<span style='font-weight:700'>On rpi5</span>
+(Pi running pikrellcam - archiving from)
+<ul>
+	<li> Edit /etc/hosts so from my Pi I can refer to my gkrellm6 desktop
+	by name instead of IP address.  The line I use for my network:
+<pre>
+192.168.0.10    gkrellm6
+</pre>
+	</li>
+	<li>
+	For this example I will mount onto the default pikrellcam archive location
+	so I don't have to edit archive_dir in pikrellcam.conf.  I leave it
+	at its default which assumes
+	<nobr>/home/pi/pikrellcam/media/archive</nobr>
+	since there is no leading /:<br>
+		&nbsp &nbsp <span style='font-weight:700'>archive_dir archive</span><br>
+	</li>
+	<li>
+	Add a line to /etc/fstab so I can NFS mount the gkrellm6 media-archive
+	directory onto the pikrellcam archive directory. Use the archive_dir
+	full path implied by the archive_dir value above:
+<pre>
+gkrellm6:/home/bill/media-archive /home/pi/pikrellcam/media/archive nfs users,noauto 0 0
+</pre>
+	</li>
+	<li> NFS mount the gkrellm6 media-archive directory by hand or by script.
+	The mount command will use the /etc/fstab line to mount the gkrellm6
+	<nobr>/home/bill/media-archive</nobr> directory on the pikrellcam
+	<nobr>/home/pi/pikrellcam/media/archive</nobr> directory.
+	After mounting, running df will show the NFS mount and reloading
+	web pages will show "NFS Archive Calendar" buttons.
+<pre>
+$ sudo mount gkrellm6:/home/bill/media-archive
+</pre>
+	</li>
+	<li> You can use the pikrellcam ~/pikrellcam/scripts/startup script
+	to mount the NFS archive directory when pikrellcam starts.
+	Pikrellcam installs prior to V 4.1.5 did not have a NFS section in that
+	startup script so you may have to copy the new
+	<nobr>~/pikrellcam/scripts-dist/startup</nobr> over your existing
+	<nobr>~/pikrellcam/scripts/startup.</nobr> and reconfigure
+	MOUNT_DISK if you had previously done that.<br>
+	Otherwise, configuration for NFS mounting must be as follows:
+	<ul>
+		<li> In ~/pikrellcam/scripts/startup, set NFS_ARCHIVE
+		to match the /etc/fstab nfs mount line:<br>
+		&nbsp &nbsp <span style='font-weight:700'>NFS_ARCHIVE=gkrellm6:/home/bill/media-archive</span>
+		</li>
+		<li> In pikrellcam.conf, set the on_startup command. The $a variable
+		will be the archive_dir value configured in pikrellcam.conf and
+		will become the archive_dir value in the script:<br>
+		&nbsp &nbsp <span style='font-weight:700'>on_startup $C/startup $I $m $a $G</span>
+		</li>
+	</ul>
+	</li>
+</ul>
+</div>
+
+<p>
+<span style='font-size: 1.2em; font-weight: 650;'>NFS Archiving Example 2</span>
+<div class='indent1'>
+This example is slightly more complicated and is my pikrellcam
+archiving set up.  I have a USB SSD booted Pi3 desktop where I archive
+videos from multiple Pis running pikrellcam.
+My Pi3 desktop with a three partition USB SSD disk is rpi0,
+and my Pis running pikrellcam are <nobr>rpi4, rpi5, ...</nobr>
+The third partition on rpi0 is a large ext4 partition I use
+for archiving various things.  Here I will archive my videos to that
+partition into a media-archive subdirectory.
+<p>
+<span style='font-weight:700'>On rpi0</span> (Desktop Pi3 - archiving to)
+<ul>
+	<li> Make /mnt/archive and partition 3 /mnt/archive/media-archive directories:
+<pre>
+$ cd /mnt
+$ sudo mkdir archive
+$ sudo chown root.disk archive
+$ sudo chmod 775 archive
+
+# Mount partition 3 and make the media-archive subdirectory (my boot disk is sda).
+$ sudo mount /dev/sda3 /mnt/archive
+$ mkdir archive/media-archive
+</pre>
+	I want rpi0 partition 3 mounted at boot, so I have in /etc/fstab
+	(I use PARTUUID in my fstab instead of sda for reliable mounting):
+<pre>
+PARTUUID=5d4064ac-01  /boot        vfat    defaults                  0       2
+PARTUUID=5d4064ac-02  /            ext4    defaults,noatime,discard  0       1
+PARTUUID=5d4064ac-03  /mnt/archive ext4    defaults,noatime,discard  0       2
+</pre>
+	</li>
+	<li> Give export permission for /mnt/archive/media-archive to all on the LAN.
+	Add to /etc/exports:
+<pre>
+/mnt/archive/media-archive 192.168.0.0/25(rw,nohide,no_subtree_check,no_root_squash)
+</pre>
+After editing /etc/exports, restart nfs-kernel-server (/mnt/archive/media-archive
+must exist):
+<pre>
+$ sudo systemctl restart nfs-kernel-server
+</pre>
+</ul>
+
+<span style='font-weight:700'>On rpi4, rpi5, ...</span> (Pis running pikrellcam - archiving from)
+<ul>
+	<li> Edit /etc/hosts so from each Pi I can refer to my rpi0 desktop
+	by name instead of IP address.  The line I use for my network:
+<pre>
+192.168.0.30    rpi0
+</pre>
+	</li>
+	<li> I don't want the pikrellcam archive directory left at the default
+	location as <nobr>~/pikrellcam/media/archive</nobr> because
+	I have all my pikrellcam media directories mounted with USB disks and
+	I would rather not NFS mount into a USB mount.
+	So, I set up similary to the structure I set up for rpi0 and
+	have each pikrellcam archive to directory /mnt/archive/media-archive which
+	will be NFS mounted (but this could be a directory in /home/pi if you
+	prefer not to put it in /mnt).
+<pre>
+$ cd /mnt
+$ sudo mkdir archive
+$ sudo chown root.disk archive
+$ sudo chmod 775 archive
+$ mkdir archive/media-archive
+</pre>
+	Stop pikrellcam and edit archive_dir in ~/.pikrellcam/pikrellcam.conf,
+	then restart pikrellcam.
+<pre>
+archive_dir  /mnt/archive/media-archive
+</pre>
+	</li>
+	<li> Edit /etc/fstab with a line for NFS mounting the rpi0
+	<nobr>/mnt/archive/media-archive</nobr> directory on the local
+	<nobr>/mnt/archive/media-archive</nobr> directory.
+	Add this line to /etc/fstab:
+<pre>
+rpi0:/mnt/archive/media-archive /mnt/archive/media-archive nfs users,noauto  0   0
+</pre>
+	</li>
+	<li> NFS mount the rpi0 media-archive directory by hand or by script.
+	The mount command will use the /etc/fstab line to mount the rpi0
+	<nobr>/mnt/archive/media-archive</nobr> directory on the
+	<nobr>/mnt/archive/media-archive</nobr> directory of the Pis
+	running pikrellcam:
+<pre>
+$ sudo mount  rpi0:/mnt/archive/media-archive
+</pre>
+	</li>
+	<li> You can use the pikrellcam startup script to mount the NFS
+	directory as described in example 1.  In this case:
+	<ul>
+		<li> In ~/pikrellcam/scripts/startup, set NFS_ARCHIVE
+		to match the mounting directory in the /etc/fstab line:<br>
+		&nbsp &nbsp <span style='font-weight:700'>NFS_ARCHIVE=rpi0:/mnt/archive/media-archive</span>
+		</li>
+		<li> In pikrellcam.conf, in addition to the archive_dir set as
+		above, set the on_startup command.  The $a variable
+		will be the archive_dir value configured in pikrellcam.conf and
+		will become the archive_dir value in the script:<br>
+		&nbsp &nbsp <span style='font-weight:700'>on_startup $C/startup $I $m $a $G</span>
+		</li>
+	</ul>
+	</li>
+</ul>
+</div>
+
+<p>
+<span style='font-size: 1.2em; font-weight: 650;'>NFS Archiving Notes</span>
+<div class='indent1'>
+<ul>
+	<li> If the remote NFS server is slow to respond or down, a NFS mount
+	command can appear to hang while the mount is retried.
+	</li>
+	<li> A non responding NFS server can cause the web pages to be slow
+	to load until either the server responds or the local kernel
+	temporarily gives up and lists the mount as "Stale".  A stale or
+	non responding NFS mount can be force unmounted with umnount -f or
+	just wait until the remote file system comes back up.
+	</li>
+</ul>
+</div>
+
+<span style='font-size: 1.2em; font-weight: 650;'>Archive Directories</span>
+<div class='indent1'>
 The archive directory tree is by year, month and day with each month and day two digits:
 <pre>
-.../archive/2015/11/13
+archive/2017/11/13
 or
-.../archive/2015/07/04
+archive/2017/07/04
 </pre>
 Where 13 is a media directory for November 13.  It has the media file sub directories videos,
 thumbs, and stills.  When you archive files from the web page,
@@ -1046,47 +1753,50 @@ Since the web server runs as the user www-data, pikrellcam creates directories w
 for the user www-data so files can be deleted from the web page. All directories in the archive
 path have permissions like:
 <pre>
-pi@rpi2: ~/pikrellcam/www$ ls -Rl /tmp/media/archive/
-/tmp/media/archive/:
-total 0
-drwxrwxr-x 3 pi www-data 60 Nov 12 12:16 2015/
 
-/tmp/media/archive/2015:
+pi@rpi2: ~/pikrellcam/www/archive$ ls -Rl
+.:
+total 0
+drwxrwxr-x 3 pi www-data 60 Nov 12 12:16 2017/
+
+./2017:
 total 0
 drwxrwxr-x 6 pi www-data 120 Nov 15 15:28 11/
 
-/tmp/media/archive/2015/11:
+./2017/11:
 total 0
 drwxrwxr-x 4 pi www-data 80 Nov 15 15:29 13/
 
-/tmp/media/archive/2015/11/13:
+./2017/11/13:
 total 0
 drwxrwxr-x 2 pi www-data 80 Nov 14 22:08 thumbs/
 drwxrwxr-x 2 pi www-data 80 Nov 14 22:08 videos/
 </pre>
-Keep these permissions in mind if you manage the directory structure outside of pikrellcam.  This
-example listing is from my configuration where I set media_dir to <nobr>/tmp/media</nobr> in pikrellcam.conf
-and my /tmp is a tmpfs
-so my archive file testing would not wear on my SD card or a mounted USB drive.
-<p>
-The archive directory tree in the above listing was created by clicking on a web page Archive button.  It is also
-possible to automate archiving from a script.  From a script or command line, the same archiving could
-be done with:
+Keep these permissions in mind if you manage the directory structure
+outside of pikrellcam.
+<br>
+Archiving can be done by sending commands to the FIFO.  For example, to
+archive all videos for Nov 13, 2017:
 <pre>
-echo "archive_video day 2015-11-13" > ~/pikrellcam/www/FIFO
+echo "archive_video day 2017-11-13" > ~/pikrellcam/www/FIFO
 </pre>
 or a specific video (including its thumb) can be archived with:
 <pre>
-echo "archive_video motion_2015-11-05_14.46.14_456.mp4 2015-11-05" > ~/pikrellcam/www/FIFO
+echo "archive_video motion_2017-11-05_14.46.14_456.mp4 2017-11-05" > ~/pikrellcam/www/FIFO
 </pre>
-To archive all videos for today or yesterday:
+To archive all media videos for today or yesterday:
 <pre>
 echo "archive_video day today" > ~/pikrellcam/www/FIFO
 echo "archive_video day yesterday" > ~/pikrellcam/www/FIFO
 </pre>
+To archive all loop videos for today or yesterday:
+<pre>
+echo "archive_video day_loop today" > ~/pikrellcam/www/FIFO
+echo "archive_video day_loop yesterday" > ~/pikrellcam/www/FIFO
+</pre>
 Stills may be script archived using the same set of arguments with the archive_still FIFO command.
 </div>
-
+</div>
 
 
 <span style='font-size: 1.5em; font-weight: 650;'>FIFO Commands</span><hr>
@@ -1098,11 +1808,21 @@ a communication pipe named
 <p>
 List of <span style='font-weight:700'>FIFO</span> commands:
 <pre>
+audio mic_open
+audio mic_close
+audio mic_toggle
+audio gain [up|down|N]		# N: 0 - 30
+audio stream_open
+audio stream_close
+audio_trigger_video [on|off]
+audio_trigger_level N		# N: 2 - 100
+box_MP3_only [on|off]
 record on
 record on pre_capture_time
 record on pre_capture_time time_limit
 record pause
 record off
+loop [on|off|toggle]
 still
 tl_start period
 tl_end
@@ -1111,8 +1831,8 @@ tl_show_status [on|off|toggle]
 motion_enable [on|off|toggle]
 motion limits magnitude count
 motion burst count frames
-motion trigger enable
-motion trigger enable pre_capture time_limit
+motion trigger code    # code is digit N or N:ID    N is 0 or 1 and ID is a string (see Examples)
+motion trigger code pre_capture time_limit
 motion load_regions name
 motion save_regions name
 motion list_regions
@@ -1138,8 +1858,8 @@ video_mp4box_fps fps
 inform "some string" row justify font xs ys
 	echo inform \"Have a nice day.\" 3 3 1 > FIFO
 	echo inform timeout 3
-archive_video [day|today|yesterday|video.mp4] yyyy-mm-dd
-archive_still [day|today|yesterday|video.mp4] yyyy-mm-dd
+archive_video [day|day_loop|video.mp4] [today|yesterday|yyyy-mm-dd]
+archive_still [day|video.mp4] [today|yesterday]yyyy-mm-dd]
 annotate_text_background_color [none|rrggbb]   # rrggbb is hex color value 000000 - ffffff
 annotate_text_brightness value   # value is integer 0 - 255, 255 default
 annotate_text_size  value        # value is integer 6 - 160, 32 default
@@ -1205,26 +1925,50 @@ echo "record on 10 6" > ~/pikrellcam/www/FIFO
 </pre>
 	</li>
 	<li>
+<a name="MOTION_TRIGGER">
 	The motion trigger command is used to trigger a motion event from a script.
 	It has two usages and the first is
-	<nobr><span style='font-weight:700'>motion trigger enable</span></nobr>
-	where <span style='font-weight:700'>enable</span> can be
-	<span style='font-weight:700'>0</span> to use the configured motion enable,
-	or it can be <span style='font-weight:700'>1</span> to force motion enable on
-	for this trigger.  If
-	<span style='font-weight:700'>enable</span> is omitted, it defaults to
-	<span style='font-weight:700'>0</span>.  This is a trigger event that
-	works in parallel with motion direction and burst detection and it uses
-	all the configured motion times and motion commands.
-	The event gap time applies, so
-	detects or triggers after an initial FIFO trigger can keep the video going:
+	<nobr><span style='font-weight:700'>motion trigger code</span></nobr>
+	where <span style='font-weight:700'>code</span> is a single digit
+	<span style='font-weight:700'>N</span> motion enable code or
+	<span style='font-weight:700'>N:ID</span>
+	which adds a colon separated string to user identify
+	the trigger type (PIR, laser interrupt, etc).
+	If N is 0, the motion trigger is subject to the currently set
+	motion enable.
+	If N is 1, and the currently set motion enable is OFF, then force
+	motion enable ON for this video record and recognize subsequent
+	motion, external and audio triggers for this video until the video ends
+	or there is a motion trigger command with N set to 0.
+	If <span style='font-weight:700'>code</span> is omitted, the currently set motion
+	enable applies and the code ID defaults to "FIFO" (for just a generic
+	FIFO trigger).  The trigger code ID string is reported in
+	the <nobr>/run/pikrellcam/motion-events</nobr> file so an on_motion_begin
+	command can monitor for different external motion trigger types.
+	See the file
+	<nobr>scripts-dist/example-motion-events.</nobr><br>
+	This is a trigger event that
+	works in parallel with motion direction, burst and audio detection and
+	it uses all the configured motion times and on_motion commands.
+	The event gap time applies, so any detects or triggers after an
+	initial FIFO trigger can keep the video going.<br>
+	Externally trigger a video with FIFO commands:
 <pre>
+# Use the motion enable currently set, if it is OFF, no video.
 echo "motion trigger" > ~/pikrellcam/www/FIFO"
-# or force motion enable on
+
+# Force motion enable on for this FIFO command, trigger video even if motion_enable is OFF.
+#   If there are no other motion direction or burst detects for this video,
+#   the web page thumb will be labeled with "FIFO".
 echo "motion trigger 1" > ~/pikrellcam/www/FIFO"
+
+# Report code string "PIR" in motion-events file and use motion enable currently set.
+#   If there are no other motion direction or burst detects for this video,
+#   the web page thumb will be labeled with "PIR".
+echo "motion trigger 0:PIR" > ~/pikrellcam/www/FIFO"
 </pre>
 	The second usage
-	<nobr><span style='font-weight:700'>motion trigger enable pre_capture time_limit</span></nobr>
+	<nobr><span style='font-weight:700'>motion trigger code pre_capture time_limit</span></nobr>
 	is a special case motion trigger event that records a
 	one shot motion video with a custom pre capture and time limit.  This usage
 	does not use the configured motion times but does run configured motion
@@ -1240,6 +1984,11 @@ echo "motion trigger 1" > ~/pikrellcam/www/FIFO"
 	constraints as the record FIFO command):
 <pre>
 echo "motion trigger 1 4 5" > ~/pikrellcam/www/FIFO"
+
+# Report code string "laser" in the motion-events file.
+#   If there are no other motion direction or burst detects for this video,
+#   the web page thumb will be labeled with "laser".
+echo "motion trigger 1:laser 4 5" > ~/pikrellcam/www/FIFO"
 </pre>
 	</li>
 	<li>The <span style='font-weight:700'>fix_thumbs</span> command provides
@@ -1351,6 +2100,9 @@ frequency  time   "command"
 		- a system command/script or an internal pikrellcam command if the command
 		is preceeded with the '@' character.  Commands must be enclosed in quotes.
 	</li>
+	<li> Prepend an '!' character to the command if you don't want it logged.
+		See ds18b20.py example below.
+	</li>
 	</ul>
 
 	Command strings may have substitution variables which are expanded by PiKrellCam
@@ -1444,9 +2196,13 @@ daily    23:00  "$C/do-archive"
 	If you have ds18b20 temperature chips connected, append temperature readings
 	to the video annotated text date string.
 	The ds18b20.py script is in the PiKrellCam scripts directory and can be edited
-	to add labels to temperature values.
+	to add labels to temperature values.  The 'F' reports fahrenheit.  Use
+	'C' for centigrade.
+	This example prepends an '!' to the
+	command to disable logging, otherwise the log file gets spammed every
+	minute.
 <pre>
-daily minute "$C/ds18b20.py F fifo"
+daily minute "$C/!ds18b20.py F fifo"
 </pre>
 	</li>
 	</ul>
@@ -1510,6 +2266,8 @@ b   0
 f  49  43  57  -2  57  263
 1  44  42  53  -4  53  144
 2  55  44  61   0  61  119
+a   45
+e   0
 &lt;/motion&gt;
 ...
 &lt;end&gt;
@@ -1537,6 +2295,12 @@ code x y dx dy magnitude count
 	motion.  Just like the overall frame vector, for a motion region to have
 	motion, the configured magnitude and count limits must be met.
 	For this detect there was motion in regions 1 and 2.
+	</li>
+	<li> <span style='font-weight:700'>a|e</span>
+	- shows audio or external triggers.  If an audio level exceeded the
+	audio_trigger_level value it is printed, otherwise 0 is shown. If there
+	was an external trigger (motion trigger command into the FIFO), then
+	the e line will show 1, otherwise 0.
 	</li>
 	</div>
 The end tag is written when the motion video ends.
@@ -1700,7 +2464,15 @@ pikrellcam.conf.
 </div>
 
 </div>
-
-
 </div>
-
+</div>
+</div>
+<?php
+echo "<div style='margin-top:12px;'>";
+echo "<a href='index.php' class='btn-control'
+		style='margin-left:8px;'>
+		$title</a>";
+echo "</div>";
+?>
+</body>
+</html>
