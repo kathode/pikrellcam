@@ -25,5 +25,5 @@
 
 	define("SERVOS_ENABLE", "servos_off");
 
-	define("VERSION", "3.1.4");
+	define("VERSION", "4.1.6");
 ?>
